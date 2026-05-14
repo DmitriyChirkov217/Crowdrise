@@ -181,6 +181,8 @@ function ProjectDetails() {
   const auth = useAuth();
   const [data, setData] = useState(null);
   const [pledge, setPledge] = useState({ amount: 1000, reward_id: null });
+  const [mediaForm, setMediaForm] = useState({ media_type: 'image', url: '', sort_order: 0 });
+  const [report, setReport] = useState({ milestone_id: '', report_text: '', files: [{ file_url: '', file_type: 'document' }] });
   const [paymentId, setPaymentId] = useState('');
   const [message, setMessage] = useState('');
   const load = () => api(`/projects/${id}`).then(setData);
@@ -191,6 +193,7 @@ function ProjectDetails() {
   const milestones = asArray(data.milestones);
   const rewards = asArray(data.rewards);
   const updates = asArray(data.updates);
+  const media = asArray(data.media);
   const isAuthor = auth.user?.id === p.author_id;
   const isAdmin = auth.user?.roles?.includes('admin');
   async function submitForReview() {
@@ -225,6 +228,38 @@ function ProjectDetails() {
       setMessage(err.message);
     }
   }
+  async function addMedia(e) {
+    e.preventDefault();
+    try {
+      await api(`/projects/${id}/media`, { method: 'POST', token: auth.token, body: { ...mediaForm, sort_order: Number(mediaForm.sort_order) } });
+      setMediaForm({ media_type: 'image', url: '', sort_order: media.length + 1 });
+      setMessage('Медиа добавлено');
+      load();
+    } catch (err) {
+      setMessage(err.message);
+    }
+  }
+  async function submitMilestoneReport(e) {
+    e.preventDefault();
+    try {
+      const files = report.files
+        .filter(file => file.file_url.trim())
+        .map(file => ({ file_url: file.file_url.trim(), file_type: file.file_type || 'document' }));
+      const res = await api(`/milestones/${report.milestone_id}/submit`, {
+        method: 'POST',
+        token: auth.token,
+        body: { report_text: report.report_text, files }
+      });
+      setReport({ milestone_id: '', report_text: '', files: [{ file_url: '', file_type: 'document' }] });
+      setMessage(`Отчёт отправлен: ${res.submission_id}`);
+      load();
+    } catch (err) {
+      setMessage(err.message);
+    }
+  }
+  function updateReportFile(index, patch) {
+    setReport(current => ({ ...current, files: current.files.map((file, i) => i === index ? { ...file, ...patch } : file) }));
+  }
   return (
     <section className="stack">
       <article className="card">
@@ -245,10 +280,47 @@ function ProjectDetails() {
           <Metric label="Возвращено" value={money(funds.total_refunded)} />
         </div>
       </article>
+      <MediaGallery media={media} />
+      {isAuthor && <section className="card">
+        <h2>Медиа проекта</h2>
+        <form className="stack" onSubmit={addMedia}>
+          <select value={mediaForm.media_type} onChange={e => setMediaForm({ ...mediaForm, media_type: e.target.value })}>
+            <option value="image">Изображение</option>
+            <option value="video">Видео</option>
+            <option value="document">Документ</option>
+          </select>
+          <input placeholder="URL файла" value={mediaForm.url} onChange={e => setMediaForm({ ...mediaForm, url: e.target.value })} />
+          <input type="number" placeholder="Порядок" value={mediaForm.sort_order} onChange={e => setMediaForm({ ...mediaForm, sort_order: e.target.value })} />
+          <button>Добавить медиа</button>
+        </form>
+      </section>}
       <div className="two-col">
         <Panel title="Этапы" items={milestones} render={m => `${m.position}. ${m.title} · ${money(m.amount_limit)} · ${m.status}`} />
         <Panel title="Вознаграждения" items={rewards} render={r => `${r.title} от ${money(r.min_amount)}`} />
       </div>
+      {isAuthor && <section className="card">
+        <h2>Отчёт по этапу</h2>
+        <form className="stack" onSubmit={submitMilestoneReport}>
+          <select value={report.milestone_id} onChange={e => setReport({ ...report, milestone_id: e.target.value })}>
+            <option value="">Выберите этап</option>
+            {milestones.map(m => <option key={m.id} value={m.id}>{m.position}. {m.title}</option>)}
+          </select>
+          <textarea placeholder="Что сделано по этапу" value={report.report_text} onChange={e => setReport({ ...report, report_text: e.target.value })} />
+          {report.files.map((file, index) => (
+            <div className="inline" key={index}>
+              <select value={file.file_type} onChange={e => updateReportFile(index, { file_type: e.target.value })}>
+                <option value="document">Документ</option>
+                <option value="image">Изображение</option>
+                <option value="video">Видео</option>
+              </select>
+              <input placeholder="URL файла отчёта" value={file.file_url} onChange={e => updateReportFile(index, { file_url: e.target.value })} />
+              {report.files.length > 1 && <button type="button" onClick={() => setReport(current => ({ ...current, files: current.files.filter((_, i) => i !== index) }))}>Удалить</button>}
+            </div>
+          ))}
+          <button type="button" onClick={() => setReport(current => ({ ...current, files: [...current.files, { file_url: '', file_type: 'document' }] }))}>Добавить файл</button>
+          <button disabled={!report.milestone_id}>Отправить отчёт</button>
+        </form>
+      </section>}
       <section className="card">
         <h2>Поддержать проект</h2>
         <form className="inline" onSubmit={support}>
@@ -274,6 +346,7 @@ function ProjectForm({ edit }) {
   const [form, setForm] = useState({ title: '', short_description: '', description: '', category_id: 1, campaign_type: 'reward', currency: 'RUB', goal_amount: 100000 });
   const [milestones, setMilestones] = useState([{ title: '', description: '', due_at: '2026-07-01T00:00:00Z', amount_limit: 100000, position: 1 }]);
   const [rewards, setRewards] = useState([{ title: '', description: '', min_amount: 1000, limit_count: 100, delivery_estimate: '2026-09-01' }]);
+  const [media, setMedia] = useState([{ media_type: 'image', url: '', sort_order: 1 }]);
   const [error, setError] = useState('');
   useEffect(() => { api('/categories').then(setCategories); }, []);
   useEffect(() => {
@@ -311,6 +384,18 @@ function ProjectForm({ edit }) {
             });
           }
         }
+        for (const [index, item] of media.entries()) {
+          if (!item.url.trim()) continue;
+          await api(`/projects/${data.id}/media`, {
+            method: 'POST',
+            token: auth.token,
+            body: {
+              media_type: item.media_type,
+              url: item.url.trim(),
+              sort_order: Number(item.sort_order || index + 1)
+            }
+          });
+        }
       }
       navigate(`/projects/${data.id}`);
     } catch (err) {
@@ -324,6 +409,10 @@ function ProjectForm({ edit }) {
 
   function updateReward(index, patch) {
     setRewards(items => items.map((item, i) => i === index ? { ...item, ...patch } : item));
+  }
+
+  function updateMedia(index, patch) {
+    setMedia(items => items.map((item, i) => i === index ? { ...item, ...patch } : item));
   }
   return (
     <section className="card">
@@ -363,6 +452,22 @@ function ProjectForm({ edit }) {
             </div>
           ))}
           <button type="button" onClick={() => setRewards(items => [...items, { title: '', description: '', min_amount: 1000, limit_count: 100, delivery_estimate: '2026-09-01' }])}>Добавить вознаграждение</button>
+        </section>}
+        {!edit && <section className="stack">
+          <h2>Медиа</h2>
+          {media.map((item, index) => (
+            <div className="stack embedded" key={index}>
+              <select value={item.media_type} onChange={e => updateMedia(index, { media_type: e.target.value })}>
+                <option value="image">Изображение</option>
+                <option value="video">Видео</option>
+                <option value="document">Документ</option>
+              </select>
+              <input placeholder="URL файла" value={item.url} onChange={e => updateMedia(index, { url: e.target.value })} />
+              <input type="number" placeholder="Порядок" value={item.sort_order} onChange={e => updateMedia(index, { sort_order: e.target.value })} />
+              {media.length > 1 && <button type="button" onClick={() => setMedia(items => items.filter((_, i) => i !== index))}>Удалить медиа</button>}
+            </div>
+          ))}
+          <button type="button" onClick={() => setMedia(items => [...items, { media_type: 'image', url: '', sort_order: items.length + 1 }])}>Добавить медиа</button>
         </section>}
         {error && <p className="error">{error}</p>}
         <button>{edit ? 'Сохранить' : 'Создать'}</button>
@@ -534,7 +639,14 @@ function AdminMilestones() {
     load();
   }
   return <section className="stack">
-    <Panel title="Отчёты по этапам" items={items} render={item => <span>{item.project_title} · {item.milestone_title} · {item.report_text} <button onClick={() => review(item, 'approved')}>Одобрить</button> <button onClick={() => review(item, 'rejected')}>Отклонить</button></span>} />
+    <Panel title="Отчёты по этапам" items={items} render={item => <div className="stack">
+      <span>{item.project_title} · {item.milestone_title} · {item.report_text}</span>
+      <FileLinks files={item.files} />
+      <div className="inline">
+        <button onClick={() => review(item, 'approved')}>Одобрить</button>
+        <button onClick={() => review(item, 'rejected')}>Отклонить</button>
+      </div>
+    </div>} />
     {message && <p className="notice">{message}</p>}
   </section>;
 }
@@ -557,6 +669,31 @@ function FormCard({ title, onSubmit, children }) {
 
 function Metric({ label, value }) {
   return <div><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function MediaGallery({ media }) {
+  const items = asArray(media);
+  if (!items.length) return null;
+  return <section className="card">
+    <h2>Медиа</h2>
+    <div className="media-grid">
+      {items.map((item, index) => <a className="media-item" key={item.id || index} href={item.url} target="_blank" rel="noreferrer">
+        {item.media_type === 'image' ? <img src={item.url} alt="" /> : <span>{mediaLabel(item.media_type)}</span>}
+      </a>)}
+    </div>
+  </section>;
+}
+
+function FileLinks({ files }) {
+  const items = asArray(files);
+  if (!items.length) return <p className="muted">Файлы не приложены</p>;
+  return <div className="inline">
+    {items.map((file, index) => <a className="button-link secondary" key={`${file.file_url}-${index}`} href={file.file_url} target="_blank" rel="noreferrer">{mediaLabel(file.file_type)}</a>)}
+  </div>;
+}
+
+function mediaLabel(type) {
+  return ({ image: 'Изображение', video: 'Видео', document: 'Документ' })[type] || 'Файл';
 }
 
 function money(value) {

@@ -996,11 +996,14 @@ func (r *Repository) listMedia(ctx context.Context, projectID string) ([]any, er
 
 func (r *Repository) ListMilestoneSubmissions(ctx context.Context) ([]map[string]any, error) {
 	rows, err := r.db.Query(ctx, `
-		select s.id::text, s.milestone_id::text, s.author_id::text, s.report_text, s.submitted_at, m.title, p.title
+		select s.id::text, s.milestone_id::text, s.author_id::text, s.report_text, s.submitted_at, m.title, p.title,
+		       coalesce(jsonb_agg(jsonb_build_object('file_url', f.file_url, 'file_type', f.file_type) order by f.file_url) filter (where f.id is not null), '[]'::jsonb)
 		from milestone_submissions s
 		join milestones m on m.id=s.milestone_id
 		join projects p on p.id=m.project_id
+		left join milestone_submission_files f on f.submission_id=s.id
 		where m.status='on_review'
+		group by s.id, s.milestone_id, s.author_id, s.report_text, s.submitted_at, m.title, p.title
 		order by s.submitted_at desc`)
 	if err != nil {
 		return nil, err
@@ -1010,12 +1013,17 @@ func (r *Repository) ListMilestoneSubmissions(ctx context.Context) ([]map[string
 	for rows.Next() {
 		var id, milestoneID, authorID, report, milestoneTitle, projectTitle string
 		var submittedAt time.Time
-		if err := rows.Scan(&id, &milestoneID, &authorID, &report, &submittedAt, &milestoneTitle, &projectTitle); err != nil {
+		var files []byte
+		if err := rows.Scan(&id, &milestoneID, &authorID, &report, &submittedAt, &milestoneTitle, &projectTitle, &files); err != nil {
+			return nil, err
+		}
+		var submissionFiles []map[string]string
+		if err := json.Unmarshal(files, &submissionFiles); err != nil {
 			return nil, err
 		}
 		items = append(items, map[string]any{
 			"id": id, "milestone_id": milestoneID, "author_id": authorID, "report_text": report,
-			"submitted_at": submittedAt, "milestone_title": milestoneTitle, "project_title": projectTitle,
+			"submitted_at": submittedAt, "milestone_title": milestoneTitle, "project_title": projectTitle, "files": submissionFiles,
 		})
 	}
 	return items, rows.Err()
