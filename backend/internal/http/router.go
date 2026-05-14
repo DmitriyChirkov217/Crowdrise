@@ -77,7 +77,10 @@ func NewRouter(app *services.Service, cfg config.Config) http.Handler {
 
 func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", s.cfg.CORSOrigin)
+		if origin := allowedOrigin(r.Header.Get("Origin"), s.cfg.CORSOrigin); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
@@ -86,6 +89,19 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func allowedOrigin(requestOrigin, configuredOrigins string) string {
+	if configuredOrigins == "*" {
+		return "*"
+	}
+	for _, origin := range strings.Split(configuredOrigins, ",") {
+		origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+		if origin != "" && origin == requestOrigin {
+			return origin
+		}
+	}
+	return ""
 }
 
 func (s *Server) logRequests(next http.Handler) http.Handler {
