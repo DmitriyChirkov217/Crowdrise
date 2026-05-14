@@ -158,6 +158,13 @@ nav a, nav button {
   gap: 1rem;
 }
 
+.embedded {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
 .inline, .filters {
   display: flex;
   gap: 0.75rem;

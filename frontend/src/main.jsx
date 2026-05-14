@@ -54,9 +54,14 @@ function Layout() {
         <nav>
           <Link to="/projects">Проекты</Link>
           <Link to="/projects/new">Создать</Link>
-          <Link to="/admin/projects">Админ</Link>
-          <Link to="/me">Профиль</Link>
-          {auth.user ? <button onClick={auth.logout}>Выйти</button> : <Link to="/login">Войти</Link>}
+          {auth.user ? (
+            <>
+              <Link to="/me">Профиль</Link>
+              <button onClick={auth.logout}>Выход</button>
+            </>
+          ) : (
+            <Link to="/login">Вход</Link>
+          )}
         </nav>
       </header>
       <main className="shell">
@@ -67,9 +72,9 @@ function Layout() {
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/new" element={<ProjectForm />} />
           <Route path="/projects/:id" element={<ProjectDetails />} />
-          <Route path="/projects/:id/edit" element={<ProjectForm edit />} />
-          <Route path="/projects/:id/milestones" element={<Milestones />} />
-          <Route path="/projects/:id/rewards" element={<Rewards />} />
+          <Route path="/projects/:id/edit" element={<ProjectDetails />} />
+          <Route path="/projects/:id/milestones" element={<ProjectDetails />} />
+          <Route path="/projects/:id/rewards" element={<ProjectDetails />} />
           <Route path="/projects/:id/updates" element={<Updates />} />
           <Route path="/admin/projects" element={<AdminProjects />} />
           <Route path="/admin/projects/:id" element={<AdminProject />} />
@@ -208,11 +213,13 @@ function ProjectDetails() {
       setMessage(err.message);
     }
   }
-  async function capturePayment(e) {
-    e.preventDefault();
+  async function capturePayment() {
+    const idToCapture = paymentId || window.prompt('Payment ID');
+    if (!idToCapture) return;
     try {
-      const res = await api(`/payments/${paymentId}/mock-capture`, { method: 'POST', token: auth.token, body: {} });
+      const res = await api(`/payments/${idToCapture}/mock-capture`, { method: 'POST', token: auth.token, body: {} });
       setMessage(`Платёж обработан: ${res.status}`);
+      setPaymentId('');
       load();
     } catch (err) {
       setMessage(err.message);
@@ -226,11 +233,9 @@ function ProjectDetails() {
         <p className="lead">{p.short_description}</p>
         <p>{p.description}</p>
         <div className="inline">
-          <Link className="button-link" to={`/projects/${id}/milestones`}>Этапы</Link>
-          <Link className="button-link" to={`/projects/${id}/rewards`}>Вознаграждения</Link>
-          <Link className="button-link" to={`/projects/${id}/updates`}>Обновления</Link>
-          {isAuthor && <Link className="button-link" to={`/projects/${id}/edit`}>Редактировать</Link>}
+          {isAuthor && <Link className="button-link" to={`/projects/${id}/updates`}>Объявления</Link>}
           {isAuthor && (p.status === 'draft' || p.status === 'rejected') && <button onClick={submitForReview}>На модерацию</button>}
+          {isAdmin && <button onClick={capturePayment}>Подтвердить оплату</button>}
         </div>
         <div className="stats">
           <Metric label="Цель" value={money(p.goal_amount)} />
@@ -256,14 +261,7 @@ function ProjectDetails() {
         </form>
         {message && <p className="notice">{message}</p>}
       </section>
-      {isAdmin && <section className="card">
-        <h2>Mock-платёж</h2>
-        <form className="inline" onSubmit={capturePayment}>
-          <input placeholder="Payment ID" value={paymentId} onChange={e => setPaymentId(e.target.value)} />
-          <button disabled={!paymentId}>Подтвердить оплату</button>
-        </form>
-      </section>}
-      <Panel title="Обновления" items={updates} render={u => `${u.title}: ${u.content}`} />
+      <Panel title="Объявления" items={updates} render={u => `${u.title}: ${u.content}`} />
     </section>
   );
 }
@@ -274,6 +272,8 @@ function ProjectForm({ edit }) {
   const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
   const [form, setForm] = useState({ title: '', short_description: '', description: '', category_id: 1, campaign_type: 'reward', currency: 'RUB', goal_amount: 100000 });
+  const [milestones, setMilestones] = useState([{ title: '', description: '', due_at: '2026-07-01T00:00:00Z', amount_limit: 100000, position: 1 }]);
+  const [rewards, setRewards] = useState([{ title: '', description: '', min_amount: 1000, limit_count: 100, delivery_estimate: '2026-09-01' }]);
   const [error, setError] = useState('');
   useEffect(() => { api('/categories').then(setCategories); }, []);
   useEffect(() => {
@@ -284,10 +284,46 @@ function ProjectForm({ edit }) {
     try {
       const body = { ...form, goal_amount: Number(form.goal_amount), category_id: Number(form.category_id) };
       const data = await api(edit ? `/projects/${id}` : '/projects', { method: edit ? 'PUT' : 'POST', token: auth.token, body });
+      if (!edit) {
+        for (const [index, milestone] of milestones.entries()) {
+          if (!milestone.title.trim()) continue;
+          await api(`/projects/${data.id}/milestones`, {
+            method: 'POST',
+            token: auth.token,
+            body: {
+              ...milestone,
+              amount_limit: Number(milestone.amount_limit),
+              position: Number(milestone.position || index + 1)
+            }
+          });
+        }
+        if (form.campaign_type === 'reward') {
+          for (const reward of rewards) {
+            if (!reward.title.trim()) continue;
+            await api(`/projects/${data.id}/rewards`, {
+              method: 'POST',
+              token: auth.token,
+              body: {
+                ...reward,
+                min_amount: Number(reward.min_amount),
+                limit_count: reward.limit_count === '' ? null : Number(reward.limit_count)
+              }
+            });
+          }
+        }
+      }
       navigate(`/projects/${data.id}`);
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  function updateMilestone(index, patch) {
+    setMilestones(items => items.map((item, i) => i === index ? { ...item, ...patch } : item));
+  }
+
+  function updateReward(index, patch) {
+    setRewards(items => items.map((item, i) => i === index ? { ...item, ...patch } : item));
   }
   return (
     <section className="card">
@@ -300,6 +336,34 @@ function ProjectForm({ edit }) {
         <select value={form.campaign_type} onChange={e => setForm({ ...form, campaign_type: e.target.value })}><option value="reward">Reward</option><option value="donation">Donation</option></select>
         <input value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value.toUpperCase() })} />
         <input type="number" value={form.goal_amount} onChange={e => setForm({ ...form, goal_amount: e.target.value })} />
+        {!edit && <section className="stack">
+          <h2>Этапы</h2>
+          {milestones.map((milestone, index) => (
+            <div className="stack embedded" key={index}>
+              <input placeholder="Название этапа" value={milestone.title} onChange={e => updateMilestone(index, { title: e.target.value })} />
+              <textarea placeholder="Описание этапа" value={milestone.description} onChange={e => updateMilestone(index, { description: e.target.value })} />
+              <input placeholder="Дата этапа" value={milestone.due_at} onChange={e => updateMilestone(index, { due_at: e.target.value })} />
+              <input type="number" placeholder="Сумма этапа" value={milestone.amount_limit} onChange={e => updateMilestone(index, { amount_limit: e.target.value })} />
+              <input type="number" placeholder="Позиция" value={milestone.position} onChange={e => updateMilestone(index, { position: e.target.value })} />
+              {milestones.length > 1 && <button type="button" onClick={() => setMilestones(items => items.filter((_, i) => i !== index))}>Удалить этап</button>}
+            </div>
+          ))}
+          <button type="button" onClick={() => setMilestones(items => [...items, { title: '', description: '', due_at: '2026-07-01T00:00:00Z', amount_limit: 10000, position: items.length + 1 }])}>Добавить этап</button>
+        </section>}
+        {!edit && form.campaign_type === 'reward' && <section className="stack">
+          <h2>Вознаграждения</h2>
+          {rewards.map((reward, index) => (
+            <div className="stack embedded" key={index}>
+              <input placeholder="Название вознаграждения" value={reward.title} onChange={e => updateReward(index, { title: e.target.value })} />
+              <textarea placeholder="Описание вознаграждения" value={reward.description} onChange={e => updateReward(index, { description: e.target.value })} />
+              <input type="number" placeholder="Минимальная сумма" value={reward.min_amount} onChange={e => updateReward(index, { min_amount: e.target.value })} />
+              <input type="number" placeholder="Лимит" value={reward.limit_count} onChange={e => updateReward(index, { limit_count: e.target.value })} />
+              <input placeholder="Дата доставки" value={reward.delivery_estimate} onChange={e => updateReward(index, { delivery_estimate: e.target.value })} />
+              {rewards.length > 1 && <button type="button" onClick={() => setRewards(items => items.filter((_, i) => i !== index))}>Удалить вознаграждение</button>}
+            </div>
+          ))}
+          <button type="button" onClick={() => setRewards(items => [...items, { title: '', description: '', min_amount: 1000, limit_count: 100, delivery_estimate: '2026-09-01' }])}>Добавить вознаграждение</button>
+        </section>}
         {error && <p className="error">{error}</p>}
         <button>{edit ? 'Сохранить' : 'Создать'}</button>
       </form>
@@ -387,16 +451,21 @@ function Rewards() {
 function Updates() {
   const { id } = useParams();
   const auth = useAuth();
+  const [project, setProject] = useState(null);
   const [form, setForm] = useState({ title: '', content: '' });
   const [message, setMessage] = useState('');
+  useEffect(() => { api(`/projects/${id}`).then(setProject); }, [id]);
   async function submit(e) {
     e.preventDefault();
     await api(`/projects/${id}/updates`, { method: 'POST', token: auth.token, body: form });
     setMessage('Обновление опубликовано');
   }
-  return <FormCard title="Опубликовать обновление" onSubmit={submit}>
+  if (!auth.token) return <Navigate to="/login" />;
+  if (!project) return <p>Загрузка...</p>;
+  if (project.project.author_id !== auth.user?.id) return <p>Объявления может публиковать только автор проекта.</p>;
+  return <FormCard title="Опубликовать объявление" onSubmit={submit}>
     <input placeholder="Заголовок" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
-    <textarea placeholder="Контент" value={form.content} onChange={e => setForm({ ...form, content: e.target.value })} />
+    <textarea placeholder="Текст объявления" value={form.content} onChange={e => setForm({ ...form, content: e.target.value })} />
     {message && <p className="notice">{message}</p>}
   </FormCard>;
 }
