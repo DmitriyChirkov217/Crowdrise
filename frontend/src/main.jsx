@@ -158,14 +158,15 @@ function Projects() {
 }
 
 function ProjectCard({ project }) {
-  const progress = Math.min(100, Math.round((project.funds.total_collected / project.goal_amount) * 100));
+  const funds = project.funds || {};
+  const progress = Math.min(100, Math.round(((funds.total_collected || 0) / project.goal_amount) * 100));
   return (
     <Link to={`/projects/${project.id}`} className="card project-card">
       <span className="pill">{project.campaign_type}</span>
       <h2>{project.title}</h2>
       <p>{project.short_description}</p>
       <div className="progress"><span style={{ width: `${progress}%` }} /></div>
-      <strong>{money(project.funds.total_collected)} из {money(project.goal_amount)}</strong>
+      <strong>{money(funds.total_collected)} из {money(project.goal_amount)}</strong>
     </Link>
   );
 }
@@ -181,6 +182,10 @@ function ProjectDetails() {
   useEffect(load, [id]);
   if (!data) return <p>Загрузка...</p>;
   const p = data.project;
+  const funds = p.funds || {};
+  const milestones = asArray(data.milestones);
+  const rewards = asArray(data.rewards);
+  const updates = asArray(data.updates);
   const isAuthor = auth.user?.id === p.author_id;
   const isAdmin = auth.user?.roles?.includes('admin');
   async function submitForReview() {
@@ -229,15 +234,15 @@ function ProjectDetails() {
         </div>
         <div className="stats">
           <Metric label="Цель" value={money(p.goal_amount)} />
-          <Metric label="Собрано" value={money(p.funds.total_collected)} />
-          <Metric label="Зарезервировано" value={money(p.funds.total_reserved)} />
-          <Metric label="Доступно" value={money(p.funds.total_available)} />
-          <Metric label="Возвращено" value={money(p.funds.total_refunded)} />
+          <Metric label="Собрано" value={money(funds.total_collected)} />
+          <Metric label="Зарезервировано" value={money(funds.total_reserved)} />
+          <Metric label="Доступно" value={money(funds.total_available)} />
+          <Metric label="Возвращено" value={money(funds.total_refunded)} />
         </div>
       </article>
       <div className="two-col">
-        <Panel title="Этапы" items={data.milestones} render={m => `${m.position}. ${m.title} · ${money(m.amount_limit)} · ${m.status}`} />
-        <Panel title="Вознаграждения" items={data.rewards} render={r => `${r.title} от ${money(r.min_amount)}`} />
+        <Panel title="Этапы" items={milestones} render={m => `${m.position}. ${m.title} · ${money(m.amount_limit)} · ${m.status}`} />
+        <Panel title="Вознаграждения" items={rewards} render={r => `${r.title} от ${money(r.min_amount)}`} />
       </div>
       <section className="card">
         <h2>Поддержать проект</h2>
@@ -245,7 +250,7 @@ function ProjectDetails() {
           <input type="number" value={pledge.amount} onChange={e => setPledge({ ...pledge, amount: e.target.value })} />
           <select value={pledge.reward_id || ''} onChange={e => setPledge({ ...pledge, reward_id: e.target.value || null })}>
             <option value="">Без вознаграждения</option>
-            {data.rewards.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
+            {rewards.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
           </select>
           <button disabled={!auth.token}>Поддержать</button>
         </form>
@@ -258,7 +263,7 @@ function ProjectDetails() {
           <button disabled={!paymentId}>Подтвердить оплату</button>
         </form>
       </section>}
-      <Panel title="Обновления" items={data.updates} render={u => `${u.title}: ${u.content}`} />
+      <Panel title="Обновления" items={updates} render={u => `${u.title}: ${u.content}`} />
     </section>
   );
 }
@@ -487,6 +492,10 @@ function Metric({ label, value }) {
 
 function money(value) {
   return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value || 0);
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
 createRoot(document.getElementById('root')).render(
