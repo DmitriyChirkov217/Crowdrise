@@ -1,0 +1,541 @@
+openapi: 3.0.3
+info:
+  title: Crowdrise MVP API
+  version: 0.1.0
+  description: REST API краудфандинговой платформы с обязательными этапами и mock-платежами.
+servers:
+  - url: http://localhost:8080/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      security: []
+      summary: Регистрация пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: JWT и пользователь
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+  /auth/login:
+    post:
+      security: []
+      summary: Вход пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: JWT и пользователь
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '403':
+          $ref: '#/components/responses/Error'
+  /users/me:
+    get:
+      summary: Текущий пользователь
+      responses:
+        '200':
+          description: Профиль пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /categories:
+    get:
+      security: []
+      summary: Список категорий
+      responses:
+        '200':
+          description: Категории
+  /projects:
+    get:
+      security: []
+      summary: Каталог проектов
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: campaign_type
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Список проектов
+    post:
+      summary: Создать проект
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectInput'
+      responses:
+        '201':
+          description: Проект в статусе draft
+  /projects/{project_id}:
+    get:
+      security: []
+      summary: Детальная карточка проекта
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Проект, этапы, награды, фонды и обновления
+    put:
+      summary: Редактировать проект
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectInput'
+      responses:
+        '200':
+          description: Обновлённый проект
+  /projects/{project_id}/media:
+    post:
+      summary: Добавить медиа URL
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                media_type:
+                  type: string
+                url:
+                  type: string
+                sort_order:
+                  type: integer
+      responses:
+        '201':
+          description: Медиа добавлено
+  /projects/{project_id}/submit:
+    post:
+      summary: Отправить проект на модерацию
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Статус on_review
+  /projects/{project_id}/milestones:
+    post:
+      summary: Создать этап
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MilestoneInput'
+      responses:
+        '201':
+          description: Этап создан
+  /milestones/{milestone_id}/submit:
+    post:
+      summary: Отправить отчёт по этапу
+      parameters:
+        - $ref: '#/components/parameters/MilestoneId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                report_text:
+                  type: string
+                files:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '201':
+          description: Отчёт отправлен
+  /projects/{project_id}/rewards:
+    post:
+      summary: Создать вознаграждение
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardInput'
+      responses:
+        '201':
+          description: Награда создана
+  /projects/{project_id}/updates:
+    post:
+      summary: Опубликовать обновление
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                content:
+                  type: string
+      responses:
+        '201':
+          description: Обновление опубликовано
+  /projects/{project_id}/pledges:
+    post:
+      summary: Поддержать проект и создать mock-платёж
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                reward_id:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: Pledge и payment_url
+  /payments/{payment_id}/mock-capture:
+    post:
+      summary: Имитировать успешный mock-платёж
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Платёж обработан как captured
+  /payments/{payment_id}/mock-fail:
+    post:
+      summary: Имитировать неуспешный mock-платёж
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Платёж обработан как failed
+  /integrations/payments/webhook:
+    post:
+      security: []
+      summary: Webhook mock-провайдера
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentWebhook'
+      responses:
+        '200':
+          description: Повторные provider_event_id идемпотентны
+  /pledges/{pledge_id}/refund:
+    post:
+      summary: Создать возврат
+      parameters:
+        - $ref: '#/components/parameters/PledgeId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Возврат выполнен
+  /admin/projects:
+    get:
+      summary: Админский список проектов
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Проекты для модерации
+  /admin/projects/{project_id}:
+    get:
+      summary: Админская карточка проекта
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Детали проекта
+  /admin/projects/{project_id}/decision:
+    post:
+      summary: Решение по проекту
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                decision:
+                  type: string
+                  enum: [approved, rejected, blocked]
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Новый статус проекта
+  /admin/milestones:
+    get:
+      summary: Отчёты этапов на проверке
+      responses:
+        '200':
+          description: Список submission
+  /admin/milestones/{milestone_id}/review:
+    post:
+      summary: Проверка этапа
+      parameters:
+        - $ref: '#/components/parameters/MilestoneId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                submission_id:
+                  type: string
+                decision:
+                  type: string
+                  enum: [approved, rejected]
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Этап проверен, при approved средства release
+  /admin/users/{user_id}/block:
+    post:
+      summary: Заблокировать пользователя
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Пользователь заблокирован
+  /admin/users/{user_id}/unblock:
+    post:
+      summary: Разблокировать пользователя
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Пользователь разблокирован
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ProjectId:
+      in: path
+      name: project_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MilestoneId:
+      in: path
+      name: milestone_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PaymentId:
+      in: path
+      name: payment_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PledgeId:
+      in: path
+      name: pledge_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      in: path
+      name: user_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Error:
+      description: Ошибка API
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+              request_id:
+                type: string
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, display_name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        display_name:
+          type: string
+        phone:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        display_name:
+          type: string
+        is_blocked:
+          type: boolean
+        roles:
+          type: array
+          items:
+            type: string
+    ProjectInput:
+      type: object
+      required: [title, short_description, description, campaign_type, currency, goal_amount]
+      properties:
+        title:
+          type: string
+        short_description:
+          type: string
+        description:
+          type: string
+        category_id:
+          type: integer
+        campaign_type:
+          type: string
+          enum: [reward, donation]
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        goal_amount:
+          type: number
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+    MilestoneInput:
+      type: object
+      required: [title, description, due_at, amount_limit, position]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        due_at:
+          type: string
+          format: date-time
+        amount_limit:
+          type: number
+        position:
+          type: integer
+    RewardInput:
+      type: object
+      required: [title, description, min_amount]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        min_amount:
+          type: number
+        limit_count:
+          type: integer
+        delivery_estimate:
+          type: string
+          format: date
+    PaymentWebhook:
+      type: object
+      required: [provider, provider_event_id, provider_payment_id, event_type, amount]
+      properties:
+        provider:
+          type: string
+        provider_event_id:
+          type: string
+        provider_payment_id:
+          type: string
+        event_type:
+          type: string
+          enum: [payment.captured, payment.failed, payment.canceled]
+        amount:
+          type: number
