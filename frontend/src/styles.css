@@ -214,6 +214,13 @@ nav a, nav button {
   gap: 1rem;
 }
 
+.field-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 800;
+  margin-bottom: -0.6rem;
+}
+
 .embedded {
   padding: 1rem;
   border: 1px solid var(--line);
@@ -255,6 +262,67 @@ nav a, nav button {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.milestone-scale {
+  --milestone-progress: 0%;
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem 0 0.2rem;
+}
+
+.milestone-scale::before,
+.milestone-scale::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2rem;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(24, 33, 29, 0.1);
+}
+
+.milestone-scale::after {
+  right: auto;
+  width: var(--milestone-progress);
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.milestone-point {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  width: min(120px, 100%);
+  text-align: center;
+}
+
+.milestone-point span {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--ink);
+  border: 3px solid white;
+  border-radius: 999px;
+  background: #e8f0e8;
+  box-shadow: 0 8px 24px rgba(52, 45, 30, 0.12);
+  font-weight: 900;
+}
+
+.milestone-point.done span {
+  color: white;
+  background: var(--accent-2);
+}
+
+.milestone-point small {
+  color: var(--muted);
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .pill {

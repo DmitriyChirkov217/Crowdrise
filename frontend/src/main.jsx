@@ -310,6 +310,7 @@ function ProjectDetails() {
           <Metric label="Возвращено" value={money(funds.total_refunded)} />
         </div>
       </article>
+      <MilestoneTimeline milestones={milestones} />
       <MediaGallery media={media} />
       {isAuthor && <section className="card">
         <h2>Медиа проекта</h2>
@@ -448,21 +449,33 @@ function ProjectForm({ edit }) {
     <section className="card">
       <h1>{edit ? 'Редактировать проект' : 'Новый проект'}</h1>
       <form onSubmit={submit} className="stack">
+        <label className="field-label">Название проекта</label>
         <input placeholder="Название" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
+        <label className="field-label">Короткое описание</label>
         <input placeholder="Краткое описание" value={form.short_description} onChange={e => setForm({ ...form, short_description: e.target.value })} />
+        <label className="field-label">Полное описание</label>
         <textarea placeholder="Полное описание" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+        <label className="field-label">Категория</label>
         <select value={form.category_id} onChange={e => setForm({ ...form, category_id: e.target.value })}>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <label className="field-label">Тип проекта</label>
         <select value={form.campaign_type} onChange={e => setForm({ ...form, campaign_type: e.target.value })}><option value="reward">Reward</option><option value="donation">Donation</option></select>
+        <label className="field-label">Валюта</label>
         <input value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value.toUpperCase() })} />
+        <label className="field-label">Целевая сумма</label>
         <input type="number" value={form.goal_amount} onChange={e => setForm({ ...form, goal_amount: e.target.value })} />
         {!edit && <section className="stack">
           <h2>Этапы</h2>
           {milestones.map((milestone, index) => (
             <div className="stack embedded" key={index}>
+              <label className="field-label">Название этапа</label>
               <input placeholder="Название этапа" value={milestone.title} onChange={e => updateMilestone(index, { title: e.target.value })} />
+              <label className="field-label">Описание этапа</label>
               <textarea placeholder="Описание этапа" value={milestone.description} onChange={e => updateMilestone(index, { description: e.target.value })} />
+              <label className="field-label">Дата этапа</label>
               <input placeholder="Дата этапа" value={milestone.due_at} onChange={e => updateMilestone(index, { due_at: e.target.value })} />
+              <label className="field-label">Сумма этапа</label>
               <input type="number" placeholder="Сумма этапа" value={milestone.amount_limit} onChange={e => updateMilestone(index, { amount_limit: e.target.value })} />
+              <label className="field-label">Порядковый номер этапа</label>
               <input type="number" placeholder="Позиция" value={milestone.position} onChange={e => updateMilestone(index, { position: e.target.value })} />
               {milestones.length > 1 && <button type="button" onClick={() => setMilestones(items => items.filter((_, i) => i !== index))}>Удалить этап</button>}
             </div>
@@ -473,10 +486,15 @@ function ProjectForm({ edit }) {
           <h2>Вознаграждения</h2>
           {rewards.map((reward, index) => (
             <div className="stack embedded" key={index}>
+              <label className="field-label">Название вознаграждения</label>
               <input placeholder="Название вознаграждения" value={reward.title} onChange={e => updateReward(index, { title: e.target.value })} />
+              <label className="field-label">Описание вознаграждения</label>
               <textarea placeholder="Описание вознаграждения" value={reward.description} onChange={e => updateReward(index, { description: e.target.value })} />
+              <label className="field-label">Минимальная сумма поддержки</label>
               <input type="number" placeholder="Минимальная сумма" value={reward.min_amount} onChange={e => updateReward(index, { min_amount: e.target.value })} />
+              <label className="field-label">Лимит вознаграждений</label>
               <input type="number" placeholder="Лимит" value={reward.limit_count} onChange={e => updateReward(index, { limit_count: e.target.value })} />
+              <label className="field-label">Ожидаемая дата доставки</label>
               <input placeholder="Дата доставки" value={reward.delivery_estimate} onChange={e => updateReward(index, { delivery_estimate: e.target.value })} />
               {rewards.length > 1 && <button type="button" onClick={() => setRewards(items => items.filter((_, i) => i !== index))}>Удалить вознаграждение</button>}
             </div>
@@ -487,12 +505,15 @@ function ProjectForm({ edit }) {
           <h2>Медиа</h2>
           {media.map((item, index) => (
             <div className="stack embedded" key={index}>
+              <label className="field-label">Тип медиа</label>
               <select value={item.media_type} onChange={e => updateMedia(index, { media_type: e.target.value })}>
                 <option value="image">Изображение</option>
                 <option value="video">Видео</option>
                 <option value="document">Документ</option>
               </select>
+              <label className="field-label">Ссылка на файл</label>
               <input placeholder="URL файла" value={item.url} onChange={e => updateMedia(index, { url: e.target.value })} />
+              <label className="field-label">Порядок отображения</label>
               <input type="number" placeholder="Порядок" value={item.sort_order} onChange={e => updateMedia(index, { sort_order: e.target.value })} />
               {media.length > 1 && <button type="button" onClick={() => setMedia(items => items.filter((_, i) => i !== index))}>Удалить медиа</button>}
             </div>
@@ -710,6 +731,24 @@ function MediaGallery({ media }) {
       {items.map((item, index) => <a className="media-item" key={item.id || index} href={item.url} target="_blank" rel="noreferrer">
         {item.media_type === 'image' ? <img src={item.url} alt="" /> : <span>{mediaLabel(item.media_type)}</span>}
       </a>)}
+    </div>
+  </section>;
+}
+
+function MilestoneTimeline({ milestones }) {
+  const items = asArray(milestones).sort((a, b) => (a.position || 0) - (b.position || 0));
+  if (!items.length) return null;
+  const doneCount = items.filter(item => item.status === 'approved').length;
+  const progress = (doneCount / items.length) * 100;
+  return <section className="card">
+    <h2>Шкала этапов</h2>
+    <div className="milestone-scale" style={{ '--milestone-progress': `${Math.min(100, progress)}%` }}>
+      {items.map((item, index) => (
+        <div className={`milestone-point ${item.status === 'approved' ? 'done' : ''}`} key={item.id || index}>
+          <span>{index + 1}</span>
+          <small>{item.title}</small>
+        </div>
+      ))}
     </div>
   </section>;
 }
