@@ -140,10 +140,40 @@ function AuthCard({ title, form, setForm, submit, error, button, alt, register }
 
 function Projects() {
   const [projects, setProjects] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [campaignType, setCampaignType] = useState('');
+  const [categoryID, setCategoryID] = useState('');
   useEffect(() => {
     api(`/projects${campaignType ? `?campaign_type=${campaignType}` : ''}`).then(data => setProjects(data.items || []));
   }, [campaignType]);
+  useEffect(() => {
+    api('/categories').then(setCategories);
+  }, []);
+  const visibleProjects = projects
+    .filter(project => !categoryID || String(project.category_id || '') === categoryID)
+    .sort((a, b) => ((b.funds?.total_collected || 0) - (a.funds?.total_collected || 0)));
+  return (
+    <section className="stack">
+      <section className="filter-panel">
+        <button className={campaignType === '' ? 'active' : ''} onClick={() => setCampaignType('')}>Все</button>
+        <button className={campaignType === 'reward' ? 'active' : ''} onClick={() => setCampaignType('reward')}>Reward</button>
+        <button className={campaignType === 'donation' ? 'active' : ''} onClick={() => setCampaignType('donation')}>Donation</button>
+      </section>
+      <section className="filter-panel category-panel">
+        <button className={categoryID === '' ? 'active' : ''} onClick={() => setCategoryID('')}>Все категории</button>
+        {categories.map(category => (
+          <button className={categoryID === String(category.id) ? 'active' : ''} key={category.id} onClick={() => setCategoryID(String(category.id))}>{category.name}</button>
+        ))}
+      </section>
+      <section className="carousel-section">
+        <p className="eyebrow">Самые поддерживаемые проекты</p>
+        <div className="project-carousel">
+          {visibleProjects.map(project => <ProjectCard key={project.id} project={project} />)}
+          {!visibleProjects.length && <p className="muted">Проектов пока нет</p>}
+        </div>
+      </section>
+    </section>
+  );
   return (
     <section>
       <div className="hero">
