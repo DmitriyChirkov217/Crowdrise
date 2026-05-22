@@ -120,6 +120,10 @@ func (s *Service) UpdateBroadcastStatus(ctx context.Context, broadcastID, author
 	return s.repo.UpdateBroadcastStatus(ctx, broadcastID, authorID, status)
 }
 
+func (s *Service) DeleteBroadcast(ctx context.Context, broadcastID, authorID string) error {
+	return s.repo.DeleteBroadcast(ctx, broadcastID, authorID)
+}
+
 func (s *Service) AddBroadcastFile(ctx context.Context, broadcastID, authorID, fileURL string) (domain.BroadcastChatFile, error) {
 	if strings.TrimSpace(fileURL) == "" {
 		return domain.BroadcastChatFile{}, domain.ErrValidation

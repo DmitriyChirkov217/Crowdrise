@@ -44,6 +44,19 @@ button {
   font-weight: 700;
 }
 
+.icon-danger {
+  display: inline-grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  border-radius: 999px;
+  color: white;
+  background: #c7352e;
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
 .button-link {
   display: inline-flex;
   align-items: center;
@@ -327,6 +340,13 @@ nav a, nav button {
   color: var(--muted);
   font-weight: 800;
   overflow-wrap: anywhere;
+}
+
+.milestone-point em {
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-style: normal;
+  font-weight: 800;
 }
 
 .pill {

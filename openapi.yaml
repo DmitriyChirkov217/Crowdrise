@@ -206,6 +206,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Broadcast'
+  /broadcasts/{broadcast_id}:
+    delete:
+      summary: Delete a broadcast room
+      description: Only the author of the linked project can delete a room. Linked broadcast files are deleted by cascade.
+      parameters:
+        - $ref: '#/components/parameters/BroadcastId'
+      responses:
+        '200':
+          description: Broadcast room deleted
   /broadcasts/{broadcast_id}/files:
     get:
       security: []

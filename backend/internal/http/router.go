@@ -65,6 +65,7 @@ func NewRouter(app *services.Service, cfg config.Config) http.Handler {
 			r.Post("/projects/{project_id}/rewards", s.requireRole(domain.RoleAuthor, s.addReward))
 			r.Post("/projects/{project_id}/updates", s.requireRole(domain.RoleAuthor, s.addProjectUpdate))
 			r.Put("/broadcasts/{broadcast_id}/status", s.requireRole(domain.RoleAuthor, s.updateBroadcastStatus))
+			r.Delete("/broadcasts/{broadcast_id}", s.requireRole(domain.RoleAuthor, s.deleteBroadcast))
 			r.Post("/broadcasts/{broadcast_id}/files", s.requireRole(domain.RoleAuthor, s.addBroadcastFile))
 			r.Post("/projects/{project_id}/pledges", s.requireRole(domain.RoleBacker, s.createPledge))
 			r.Post("/milestones/{milestone_id}/submit", s.requireRole(domain.RoleAuthor, s.submitMilestoneReport))
@@ -242,6 +243,11 @@ func (s *Server) updateBroadcastStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.app.UpdateBroadcastStatus(r.Context(), chi.URLParam(r, "broadcast_id"), claims(r).UserID, req.Status)
 	writeResult(w, res, err, http.StatusOK)
+}
+
+func (s *Server) deleteBroadcast(w http.ResponseWriter, r *http.Request) {
+	err := s.app.DeleteBroadcast(r.Context(), chi.URLParam(r, "broadcast_id"), claims(r).UserID)
+	writeResult(w, map[string]string{"status": "deleted"}, err, http.StatusOK)
 }
 
 func (s *Server) addBroadcastFile(w http.ResponseWriter, r *http.Request) {

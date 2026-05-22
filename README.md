@@ -101,6 +101,7 @@ Voice uses WebRTC mesh: the backend does not carry audio, it only relays signali
 GET  /api/v1/projects/{project_id}/broadcasts
 POST /api/v1/projects/{project_id}/broadcasts
 PUT  /api/v1/broadcasts/{broadcast_id}/status
+DELETE /api/v1/broadcasts/{broadcast_id}
 GET  /api/v1/broadcasts/{broadcast_id}/files
 POST /api/v1/broadcasts/{broadcast_id}/files
 GET  /api/v1/broadcasts/{broadcast_id}/ws?token={jwt}

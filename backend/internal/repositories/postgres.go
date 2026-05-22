@@ -1138,6 +1138,28 @@ func (r *Repository) UpdateBroadcastStatus(ctx context.Context, broadcastID, aut
 	return r.GetBroadcast(ctx, broadcastID)
 }
 
+func (r *Repository) DeleteBroadcast(ctx context.Context, broadcastID, authorID string) error {
+	tag, err := r.db.Exec(ctx, `
+		delete from broadcast b
+		using projects p
+		where b.project_id=p.id and b.id=$1 and p.author_id=$2`, broadcastID, authorID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		err := r.db.QueryRow(ctx, `select exists(select 1 from broadcast where id=$1)`, broadcastID).Scan(&exists)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return domain.ErrForbidden
+		}
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (r *Repository) AddBroadcastFile(ctx context.Context, broadcastID, authorID, fileURL string) (domain.BroadcastChatFile, error) {
 	var ownerID string
 	err := r.db.QueryRow(ctx, `

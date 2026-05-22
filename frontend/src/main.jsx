@@ -297,7 +297,7 @@ function ProjectDetails() {
   async function createBroadcast() {
     try {
       const room = await api(`/projects/${id}/broadcasts`, { method: 'POST', token: auth.token, body: { status: 'scheduled' } });
-      setMessage('Broadcast room created');
+      setMessage('Комната трансляции создана');
       load();
       return room;
     } catch (err) {
@@ -321,7 +321,16 @@ function ProjectDetails() {
   async function setBroadcastStatus(broadcastID, status) {
     try {
       await api(`/broadcasts/${broadcastID}/status`, { method: 'PUT', token: auth.token, body: { status } });
-      setMessage(`Broadcast status: ${status}`);
+      setMessage(`Статус комнаты: ${broadcastStatusLabel(status)}`);
+      load();
+    } catch (err) {
+      setMessage(err.message);
+    }
+  }
+  async function deleteBroadcast(broadcastID) {
+    try {
+      await api(`/broadcasts/${broadcastID}`, { method: 'DELETE', token: auth.token });
+      setMessage('Комната трансляции удалена');
       load();
     } catch (err) {
       setMessage(err.message);
@@ -338,7 +347,7 @@ function ProjectDetails() {
         <p className="lead">{p.short_description}</p>
         <p>{p.description}</p>
         <div className="inline">
-          {(activeBroadcast || isAuthor) && <button onClick={openBroadcastChat}>Broadcast chat</button>}
+          {(activeBroadcast || isAuthor) && <button onClick={openBroadcastChat}>Голосовой чат</button>}
           {isAuthor && <Link className="button-link" to={`/projects/${id}/updates`}>Объявления</Link>}
           {isAuthor && (p.status === 'draft' || p.status === 'rejected') && <button onClick={submitForReview}>На модерацию</button>}
           {isAdmin && <button onClick={capturePayment}>Подтвердить оплату</button>}
@@ -353,29 +362,30 @@ function ProjectDetails() {
       </article>
       <section className="card stack">
         <div className="inline between">
-          <h2>Broadcast rooms</h2>
-          {isAuthor && <button onClick={createBroadcast}>Create room</button>}
+          <h2>Комнаты трансляций</h2>
+          {isAuthor && <button onClick={createBroadcast}>Создать комнату</button>}
         </div>
         {broadcasts.length ? <ul className="list">
           {broadcasts.map(room => (
             <li key={room.id}>
               <div className="stack">
                 <div className="inline">
-                  <span>{room.status}</span>
-                  <Link className="button-link secondary" to={`/broadcasts/${room.id}`}>Open voice room</Link>
+                  <span>{broadcastStatusLabel(room.status)}</span>
+                  <Link className="button-link secondary" to={`/broadcasts/${room.id}`}>Открыть голосовой чат</Link>
+                  {isAuthor && <button className="icon-danger" title="Удалить комнату" onClick={() => deleteBroadcast(room.id)}>×</button>}
                 </div>
                 {isAuthor && <div className="inline">
-                  <button onClick={() => setBroadcastStatus(room.id, 'scheduled')}>Scheduled</button>
-                  <button onClick={() => setBroadcastStatus(room.id, 'live')}>Live</button>
-                  <button onClick={() => setBroadcastStatus(room.id, 'ended')}>Ended</button>
+                  <button onClick={() => setBroadcastStatus(room.id, 'scheduled')}>Запланирована</button>
+                  <button onClick={() => setBroadcastStatus(room.id, 'live')}>В эфире</button>
+                  <button onClick={() => setBroadcastStatus(room.id, 'ended')}>Завершена</button>
                 </div>}
-                <FileLinks files={asArray(room.files).map(file => ({ file_url: file.file_url, file_type: 'document' }))} />
+                <BroadcastFileLinks files={room.files} />
               </div>
             </li>
           ))}
-        </ul> : <p className="muted">No broadcast rooms yet</p>}
+        </ul> : <p className="muted">Комнат трансляций пока нет</p>}
       </section>
-      <MilestoneTimeline milestones={milestones} />
+      <MilestoneFundingScale milestones={milestones} collected={funds.total_collected || 0} />
       <MediaGallery media={media} />
       {isAuthor && <section className="card">
         <h2>Медиа проекта</h2>
@@ -504,7 +514,7 @@ function BroadcastRoom() {
 
   async function connect() {
     if (!auth.token) {
-      setNotice('Login is required to join voice');
+      setNotice('Для входа в голосовой чат нужно авторизоваться');
       return;
     }
     try {
@@ -514,13 +524,13 @@ function BroadcastRoom() {
       wsRef.current = ws;
       ws.onopen = () => {
         setConnected(true);
-        setNotice('Voice room connected');
+        setNotice('Вы подключились к голосовому чату');
       };
       ws.onclose = () => {
         setConnected(false);
-        setNotice('Voice room disconnected');
+        setNotice('Вы отключились от голосового чата');
       };
-      ws.onerror = () => setNotice('Voice connection failed');
+      ws.onerror = () => setNotice('Не удалось подключиться к голосовому чату');
       ws.onmessage = async event => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'joined') {
@@ -550,7 +560,7 @@ function BroadcastRoom() {
         }
       };
     } catch (err) {
-      setNotice(err.message);
+      setNotice('Не удалось получить доступ к микрофону или подключиться к комнате');
     }
   }
 
@@ -578,10 +588,10 @@ function BroadcastRoom() {
     try {
       await api(`/broadcasts/${id}/files`, { method: 'POST', token: auth.token, body: { file_url: fileURL } });
       setFileURL('');
-      setNotice('File added');
+      setNotice('Документ добавлен');
       loadFiles();
     } catch (err) {
-      setNotice(err.message);
+      setNotice('Не удалось добавить документ');
     }
   }
 
@@ -589,28 +599,28 @@ function BroadcastRoom() {
     <section className="stack">
       <section className="card stack">
         <div className="inline between">
-          <h1>Broadcast voice room</h1>
-          <Link className="button-link secondary" to="/projects">Projects</Link>
+          <h1>Голосовой чат трансляции</h1>
+          <Link className="button-link secondary" to="/projects">К проектам</Link>
         </div>
-        <p className="muted">Peer ID: {peerId || 'not connected'}</p>
+        <p className="muted">Ваш ID подключения: {peerId || 'не подключены'}</p>
         <div className="inline">
-          {!connected ? <button onClick={connect} disabled={!auth.token}>Join with microphone</button> : <button onClick={disconnect}>Leave</button>}
-          <button onClick={toggleMute} disabled={!connected}>{muted ? 'Unmute' : 'Mute'}</button>
+          {!connected ? <button onClick={connect} disabled={!auth.token}>Войти с микрофоном</button> : <button onClick={disconnect}>Выйти</button>}
+          <button onClick={toggleMute} disabled={!connected}>{muted ? 'Включить микрофон' : 'Выключить микрофон'}</button>
         </div>
         {notice && <p className="notice">{notice}</p>}
       </section>
       <section className="card stack">
-        <h2>Voice peers</h2>
+        <h2>Участники голосового чата</h2>
         <LocalAudio stream={localStreamRef.current} />
         {Object.entries(remoteStreams).map(([id, stream]) => <RemoteAudio key={id} peerID={id} stream={stream} />)}
-        {!Object.keys(remoteStreams).length && <p className="muted">No remote speakers yet</p>}
+        {!Object.keys(remoteStreams).length && <p className="muted">Пока нет других участников</p>}
       </section>
       <section className="card stack">
-        <h2>Broadcast files</h2>
-        <FileLinks files={files.map(file => ({ file_url: file.file_url, file_type: 'document' }))} />
+        <h2>Документы трансляции</h2>
+        <BroadcastFileLinks files={files} />
         <form className="inline" onSubmit={addFile}>
-          <input placeholder="File URL" value={fileURL} onChange={e => setFileURL(e.target.value)} />
-          <button disabled={!auth.token || !fileURL.trim()}>Add file</button>
+          <input placeholder="URL документа" value={fileURL} onChange={e => setFileURL(e.target.value)} />
+          <button disabled={!auth.token || !fileURL.trim()}>Добавить документ</button>
         </form>
       </section>
     </section>
@@ -632,7 +642,7 @@ function RemoteAudio({ peerID, stream }) {
     if (ref.current) ref.current.srcObject = stream;
   }, [stream]);
   return <div className="stack embedded">
-    <span>{peerID}</span>
+    <span>Участник {peerID}</span>
     <audio ref={ref} autoPlay controls />
   </div>;
 }
@@ -1021,12 +1031,55 @@ function MilestoneTimeline({ milestones }) {
   </section>;
 }
 
+function MilestoneFundingScale({ milestones, collected = 0 }) {
+  const items = asArray(milestones).sort((a, b) => (a.position || 0) - (b.position || 0));
+  if (!items.length) return null;
+  const totalGoal = items.reduce((sum, item) => sum + (Number(item.amount_limit) || 0), 0);
+  const progress = totalGoal > 0 ? (Number(collected) / totalGoal) * 100 : 0;
+  let cumulative = 0;
+  return <section className="card">
+    <div className="inline between">
+      <h2>Шкала сбора</h2>
+      <strong>{money(collected)} из {money(totalGoal)}</strong>
+    </div>
+    <div className="milestone-scale" style={{ '--milestone-progress': `${Math.min(100, progress)}%` }}>
+      {items.map((item, index) => {
+        cumulative += Number(item.amount_limit) || 0;
+        const reached = Number(collected) >= cumulative;
+        return (
+          <div className={`milestone-point ${reached ? 'done' : ''}`} key={item.id || index}>
+            <span>{index + 1}</span>
+            <small>{item.title}</small>
+            <em>{money(cumulative)}</em>
+          </div>
+        );
+      })}
+    </div>
+  </section>;
+}
+
 function FileLinks({ files }) {
   const items = asArray(files);
   if (!items.length) return <p className="muted">Файлы не приложены</p>;
   return <div className="inline">
     {items.map((file, index) => <a className="button-link secondary" key={`${file.file_url}-${index}`} href={file.file_url} target="_blank" rel="noreferrer">{mediaLabel(file.file_type)}</a>)}
   </div>;
+}
+
+function BroadcastFileLinks({ files }) {
+  const items = asArray(files);
+  if (!items.length) return <p className="muted">Документы не добавлены</p>;
+  return <div className="inline">
+    {items.map((file, index) => (
+      <a className="button-link secondary" key={`${file.file_url}-${index}`} href={file.file_url} target="_blank" rel="noreferrer">
+        Документ {index + 1}
+      </a>
+    ))}
+  </div>;
+}
+
+function broadcastStatusLabel(status) {
+  return ({ scheduled: 'запланирована', live: 'в эфире', ended: 'завершена' })[status] || status;
 }
 
 function mediaLabel(type) {
