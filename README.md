@@ -91,3 +91,19 @@ docker-compose.yml
 openapi.yaml
 README.md
 ```
+
+## Broadcast voice rooms
+
+Broadcast rooms are stored in `broadcast`, and author file URLs are stored in `broadcast_chat_files`.
+Voice uses WebRTC mesh: the backend does not carry audio, it only relays signaling through WebSocket.
+
+```text
+GET  /api/v1/projects/{project_id}/broadcasts
+POST /api/v1/projects/{project_id}/broadcasts
+PUT  /api/v1/broadcasts/{broadcast_id}/status
+GET  /api/v1/broadcasts/{broadcast_id}/files
+POST /api/v1/broadcasts/{broadcast_id}/files
+GET  /api/v1/broadcasts/{broadcast_id}/ws?token={jwt}
+```
+
+Users must be authenticated to join voice. Participants are not persisted in the database. Only the project author can add broadcast files.

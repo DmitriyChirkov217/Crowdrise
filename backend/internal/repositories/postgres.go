@@ -239,7 +239,11 @@ func (r *Repository) GetProjectDetails(ctx context.Context, projectID string) (d
 	if err != nil {
 		return domain.ProjectDetails{}, err
 	}
-	return domain.ProjectDetails{Project: project, Milestones: milestones, Rewards: rewards, Updates: updates, Media: media}, nil
+	broadcasts, err := r.ListBroadcasts(ctx, projectID)
+	if err != nil {
+		return domain.ProjectDetails{}, err
+	}
+	return domain.ProjectDetails{Project: project, Milestones: milestones, Rewards: rewards, Updates: updates, Media: media, Broadcasts: broadcasts}, nil
 }
 
 func (r *Repository) getProject(ctx context.Context, projectID string) (domain.Project, error) {
@@ -1038,6 +1042,145 @@ func (r *Repository) SetUserBlocked(ctx context.Context, userID string, blocked 
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (r *Repository) ListBroadcasts(ctx context.Context, projectID string) ([]domain.Broadcast, error) {
+	rows, err := r.db.Query(ctx, `
+		select id::text, project_id::text, status
+		from broadcast
+		where project_id=$1
+		order by id`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []domain.Broadcast
+	for rows.Next() {
+		var item domain.Broadcast
+		if err := rows.Scan(&item.ID, &item.ProjectID, &item.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range items {
+		files, err := r.ListBroadcastFiles(ctx, items[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		items[i].Files = files
+	}
+	return items, nil
+}
+
+func (r *Repository) CreateBroadcast(ctx context.Context, projectID, authorID, status string) (domain.Broadcast, error) {
+	var ownerID string
+	err := r.db.QueryRow(ctx, `select author_id::text from projects where id=$1`, projectID).Scan(&ownerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Broadcast{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Broadcast{}, err
+	}
+	if ownerID != authorID {
+		return domain.Broadcast{}, domain.ErrForbidden
+	}
+	id := uuid.NewString()
+	_, err = r.db.Exec(ctx, `insert into broadcast (id, project_id, status) values ($1,$2,$3)`, id, projectID, status)
+	if err != nil {
+		return domain.Broadcast{}, err
+	}
+	return r.GetBroadcast(ctx, id)
+}
+
+func (r *Repository) GetBroadcast(ctx context.Context, broadcastID string) (domain.Broadcast, error) {
+	var item domain.Broadcast
+	err := r.db.QueryRow(ctx, `
+		select id::text, project_id::text, status
+		from broadcast
+		where id=$1`, broadcastID).Scan(&item.ID, &item.ProjectID, &item.Status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Broadcast{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Broadcast{}, err
+	}
+	files, err := r.ListBroadcastFiles(ctx, broadcastID)
+	if err != nil {
+		return domain.Broadcast{}, err
+	}
+	item.Files = files
+	return item, nil
+}
+
+func (r *Repository) UpdateBroadcastStatus(ctx context.Context, broadcastID, authorID, status string) (domain.Broadcast, error) {
+	tag, err := r.db.Exec(ctx, `
+		update broadcast b
+		set status=$1
+		from projects p
+		where b.project_id=p.id and b.id=$2 and p.author_id=$3`, status, broadcastID, authorID)
+	if err != nil {
+		return domain.Broadcast{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		err := r.db.QueryRow(ctx, `select exists(select 1 from broadcast where id=$1)`, broadcastID).Scan(&exists)
+		if err != nil {
+			return domain.Broadcast{}, err
+		}
+		if exists {
+			return domain.Broadcast{}, domain.ErrForbidden
+		}
+		return domain.Broadcast{}, domain.ErrNotFound
+	}
+	return r.GetBroadcast(ctx, broadcastID)
+}
+
+func (r *Repository) AddBroadcastFile(ctx context.Context, broadcastID, authorID, fileURL string) (domain.BroadcastChatFile, error) {
+	var ownerID string
+	err := r.db.QueryRow(ctx, `
+		select p.author_id::text
+		from broadcast b
+		join projects p on p.id=b.project_id
+		where b.id=$1`, broadcastID).Scan(&ownerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.BroadcastChatFile{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.BroadcastChatFile{}, err
+	}
+	if ownerID != authorID {
+		return domain.BroadcastChatFile{}, domain.ErrForbidden
+	}
+	id := uuid.NewString()
+	_, err = r.db.Exec(ctx, `insert into broadcast_chat_files (id, broadcast_id, file_url) values ($1,$2,$3)`, id, broadcastID, fileURL)
+	if err != nil {
+		return domain.BroadcastChatFile{}, err
+	}
+	return domain.BroadcastChatFile{ID: id, BroadcastID: broadcastID, FileURL: fileURL}, nil
+}
+
+func (r *Repository) ListBroadcastFiles(ctx context.Context, broadcastID string) ([]domain.BroadcastChatFile, error) {
+	rows, err := r.db.Query(ctx, `
+		select id::text, broadcast_id::text, file_url
+		from broadcast_chat_files
+		where broadcast_id=$1
+		order by id`, broadcastID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []domain.BroadcastChatFile
+	for rows.Next() {
+		var item domain.BroadcastChatFile
+		if err := rows.Scan(&item.ID, &item.BroadcastID, &item.FileURL); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (r *Repository) CreateNotification(ctx context.Context, userID, eventType string, payload map[string]any) error {

@@ -44,6 +44,10 @@ const (
 	OutboxProcessing = "processing"
 	OutboxSent       = "sent"
 	OutboxFailed     = "failed"
+
+	BroadcastScheduled = "scheduled"
+	BroadcastLive      = "live"
+	BroadcastEnded     = "ended"
 )
 
 var (
@@ -107,10 +111,24 @@ type Reward struct {
 	DeliveryEstimate *string `json:"delivery_estimate,omitempty"`
 }
 
+type BroadcastChatFile struct {
+	ID          string `json:"id"`
+	BroadcastID string `json:"broadcast_id"`
+	FileURL     string `json:"file_url"`
+}
+
+type Broadcast struct {
+	ID        string              `json:"id"`
+	ProjectID string              `json:"project_id"`
+	Status    string              `json:"status"`
+	Files     []BroadcastChatFile `json:"files,omitempty"`
+}
+
 type ProjectDetails struct {
 	Project    Project     `json:"project"`
 	Media      []any       `json:"media"`
 	Milestones []Milestone `json:"milestones"`
 	Rewards    []Reward    `json:"rewards"`
 	Updates    []any       `json:"updates"`
+	Broadcasts []Broadcast `json:"broadcasts"`
 }

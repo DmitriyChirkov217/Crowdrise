@@ -141,6 +141,124 @@ paths:
       responses:
         '201':
           description: Медиа добавлено
+  /projects/{project_id}/broadcasts:
+    get:
+      security: []
+      summary: List anonymous broadcast rooms for a project
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Broadcast rooms with author file URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Broadcast'
+    post:
+      summary: Create a broadcast room
+      description: Only the project author can create a room.
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [scheduled, live, ended]
+                  default: scheduled
+      responses:
+        '201':
+          description: Broadcast room created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Broadcast'
+  /broadcasts/{broadcast_id}/status:
+    put:
+      summary: Update broadcast room status
+      description: Only the author of the linked project can update status.
+      parameters:
+        - $ref: '#/components/parameters/BroadcastId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [scheduled, live, ended]
+      responses:
+        '200':
+          description: Broadcast room status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Broadcast'
+  /broadcasts/{broadcast_id}/files:
+    get:
+      security: []
+      summary: List anonymous broadcast room file URLs
+      parameters:
+        - $ref: '#/components/parameters/BroadcastId'
+      responses:
+        '200':
+          description: File URLs sent by the author
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BroadcastChatFile'
+    post:
+      summary: Add a file URL to a broadcast room
+      description: Only the author of the linked project can add files. There are no text messages and no participant identity.
+      parameters:
+        - $ref: '#/components/parameters/BroadcastId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_url]
+              properties:
+                file_url:
+                  type: string
+      responses:
+        '201':
+          description: File URL added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BroadcastChatFile'
+  /broadcasts/{broadcast_id}/ws:
+    get:
+      summary: WebSocket signaling for broadcast voice room
+      description: Authenticated users connect with JWT in `Authorization: Bearer ...` or `?token=...`. The backend relays WebRTC mesh signaling only and does not store participants.
+      parameters:
+        - $ref: '#/components/parameters/BroadcastId'
+        - in: query
+          name: token
+          schema:
+            type: string
+      responses:
+        '101':
+          description: WebSocket upgrade. Message types include joined, peer_joined, peer_left, offer, answer, ice_candidate, mute, leave.
   /projects/{project_id}/submit:
     post:
       summary: Отправить проект на модерацию
@@ -408,6 +526,13 @@ components:
       schema:
         type: string
         format: uuid
+    BroadcastId:
+      in: path
+      name: broadcast_id
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
     Error:
       description: Ошибка API
@@ -524,6 +649,33 @@ components:
         delivery_estimate:
           type: string
           format: date
+    Broadcast:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [scheduled, live, ended]
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/BroadcastChatFile'
+    BroadcastChatFile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        broadcast_id:
+          type: string
+          format: uuid
+        file_url:
+          type: string
     PaymentWebhook:
       type: object
       required: [provider, provider_event_id, provider_payment_id, event_type, amount]

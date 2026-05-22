@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from 'react-router-dom';
 import './styles.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+const WS_URL = API_URL.replace(/^http/, 'ws');
 const AuthContext = createContext(null);
 
 function useAuth() {
@@ -72,6 +73,7 @@ function Layout() {
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/new" element={<ProjectForm />} />
           <Route path="/projects/:id" element={<ProjectDetails />} />
+          <Route path="/broadcasts/:id" element={<BroadcastRoom />} />
           <Route path="/projects/:id/edit" element={<ProjectDetails />} />
           <Route path="/projects/:id/milestones" element={<ProjectDetails />} />
           <Route path="/projects/:id/rewards" element={<ProjectDetails />} />
@@ -209,6 +211,7 @@ function ProjectCard({ project }) {
 function ProjectDetails() {
   const { id } = useParams();
   const auth = useAuth();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [pledge, setPledge] = useState({ amount: 1000, reward_id: null });
   const [mediaForm, setMediaForm] = useState({ media_type: 'image', url: '', sort_order: 0 });
@@ -224,6 +227,10 @@ function ProjectDetails() {
   const rewards = asArray(data.rewards);
   const updates = asArray(data.updates);
   const media = asArray(data.media);
+  const broadcasts = asArray(data.broadcasts);
+  const activeBroadcast = broadcasts.find(room => room.status === 'live')
+    || broadcasts.find(room => room.status === 'scheduled')
+    || broadcasts[0];
   const isAuthor = auth.user?.id === p.author_id;
   const isAdmin = auth.user?.roles?.includes('admin');
   async function submitForReview() {
@@ -287,6 +294,39 @@ function ProjectDetails() {
       setMessage(err.message);
     }
   }
+  async function createBroadcast() {
+    try {
+      const room = await api(`/projects/${id}/broadcasts`, { method: 'POST', token: auth.token, body: { status: 'scheduled' } });
+      setMessage('Broadcast room created');
+      load();
+      return room;
+    } catch (err) {
+      setMessage(err.message);
+      return null;
+    }
+  }
+  async function openBroadcastChat() {
+    if (activeBroadcast) {
+      navigate(`/broadcasts/${activeBroadcast.id}`);
+      return;
+    }
+    if (!isAuthor) {
+      return;
+    }
+    const room = await createBroadcast();
+    if (room?.id) {
+      navigate(`/broadcasts/${room.id}`);
+    }
+  }
+  async function setBroadcastStatus(broadcastID, status) {
+    try {
+      await api(`/broadcasts/${broadcastID}/status`, { method: 'PUT', token: auth.token, body: { status } });
+      setMessage(`Broadcast status: ${status}`);
+      load();
+    } catch (err) {
+      setMessage(err.message);
+    }
+  }
   function updateReportFile(index, patch) {
     setReport(current => ({ ...current, files: current.files.map((file, i) => i === index ? { ...file, ...patch } : file) }));
   }
@@ -298,6 +338,7 @@ function ProjectDetails() {
         <p className="lead">{p.short_description}</p>
         <p>{p.description}</p>
         <div className="inline">
+          {(activeBroadcast || isAuthor) && <button onClick={openBroadcastChat}>Broadcast chat</button>}
           {isAuthor && <Link className="button-link" to={`/projects/${id}/updates`}>Объявления</Link>}
           {isAuthor && (p.status === 'draft' || p.status === 'rejected') && <button onClick={submitForReview}>На модерацию</button>}
           {isAdmin && <button onClick={capturePayment}>Подтвердить оплату</button>}
@@ -310,6 +351,30 @@ function ProjectDetails() {
           <Metric label="Возвращено" value={money(funds.total_refunded)} />
         </div>
       </article>
+      <section className="card stack">
+        <div className="inline between">
+          <h2>Broadcast rooms</h2>
+          {isAuthor && <button onClick={createBroadcast}>Create room</button>}
+        </div>
+        {broadcasts.length ? <ul className="list">
+          {broadcasts.map(room => (
+            <li key={room.id}>
+              <div className="stack">
+                <div className="inline">
+                  <span>{room.status}</span>
+                  <Link className="button-link secondary" to={`/broadcasts/${room.id}`}>Open voice room</Link>
+                </div>
+                {isAuthor && <div className="inline">
+                  <button onClick={() => setBroadcastStatus(room.id, 'scheduled')}>Scheduled</button>
+                  <button onClick={() => setBroadcastStatus(room.id, 'live')}>Live</button>
+                  <button onClick={() => setBroadcastStatus(room.id, 'ended')}>Ended</button>
+                </div>}
+                <FileLinks files={asArray(room.files).map(file => ({ file_url: file.file_url, file_type: 'document' }))} />
+              </div>
+            </li>
+          ))}
+        </ul> : <p className="muted">No broadcast rooms yet</p>}
+      </section>
       <MilestoneTimeline milestones={milestones} />
       <MediaGallery media={media} />
       {isAuthor && <section className="card">
@@ -367,6 +432,209 @@ function ProjectDetails() {
       <Panel title="Объявления" items={updates} render={u => `${u.title}: ${u.content}`} />
     </section>
   );
+}
+
+function BroadcastRoom() {
+  const { id } = useParams();
+  const auth = useAuth();
+  const [files, setFiles] = useState([]);
+  const [fileURL, setFileURL] = useState('');
+  const [connected, setConnected] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [peerId, setPeerId] = useState('');
+  const [remoteStreams, setRemoteStreams] = useState({});
+  const [notice, setNotice] = useState('');
+  const wsRef = useRef(null);
+  const pcsRef = useRef({});
+  const localStreamRef = useRef(null);
+
+  const loadFiles = () => api(`/broadcasts/${id}/files`).then(data => setFiles(data.items || []));
+  useEffect(() => {
+    loadFiles();
+    return () => disconnect();
+  }, [id]);
+
+  function send(message) {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(message));
+    }
+  }
+
+  async function createPeer(remotePeerID, initiator) {
+    if (pcsRef.current[remotePeerID]) return pcsRef.current[remotePeerID];
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+    pcsRef.current[remotePeerID] = pc;
+    localStreamRef.current?.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current));
+    pc.onicecandidate = event => {
+      if (event.candidate) {
+        send({ type: 'ice_candidate', to: remotePeerID, payload: event.candidate });
+      }
+    };
+    pc.ontrack = event => {
+      const [stream] = event.streams;
+      if (stream) {
+        setRemoteStreams(current => ({ ...current, [remotePeerID]: stream }));
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
+        closePeer(remotePeerID);
+      }
+    };
+    if (initiator) {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      send({ type: 'offer', to: remotePeerID, payload: offer });
+    }
+    return pc;
+  }
+
+  function closePeer(remotePeerID) {
+    pcsRef.current[remotePeerID]?.close();
+    delete pcsRef.current[remotePeerID];
+    setRemoteStreams(current => {
+      const next = { ...current };
+      delete next[remotePeerID];
+      return next;
+    });
+  }
+
+  async function connect() {
+    if (!auth.token) {
+      setNotice('Login is required to join voice');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStreamRef.current = stream;
+      const ws = new WebSocket(`${WS_URL}/broadcasts/${id}/ws?token=${encodeURIComponent(auth.token)}`);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        setConnected(true);
+        setNotice('Voice room connected');
+      };
+      ws.onclose = () => {
+        setConnected(false);
+        setNotice('Voice room disconnected');
+      };
+      ws.onerror = () => setNotice('Voice connection failed');
+      ws.onmessage = async event => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'joined') {
+          setPeerId(msg.peer_id);
+          for (const peer of msg.peers || []) {
+            await createPeer(peer.peer_id, true);
+          }
+        }
+        if (msg.type === 'peer_joined') {
+          await createPeer(msg.peer_id, false);
+        }
+        if (msg.type === 'offer') {
+          const pc = await createPeer(msg.from, false);
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          send({ type: 'answer', to: msg.from, payload: answer });
+        }
+        if (msg.type === 'answer') {
+          await pcsRef.current[msg.from]?.setRemoteDescription(new RTCSessionDescription(msg.payload));
+        }
+        if (msg.type === 'ice_candidate') {
+          await pcsRef.current[msg.from]?.addIceCandidate(new RTCIceCandidate(msg.payload));
+        }
+        if (msg.type === 'peer_left') {
+          closePeer(msg.peer_id);
+        }
+      };
+    } catch (err) {
+      setNotice(err.message);
+    }
+  }
+
+  function disconnect() {
+    send({ type: 'leave' });
+    wsRef.current?.close();
+    Object.keys(pcsRef.current).forEach(closePeer);
+    localStreamRef.current?.getTracks().forEach(track => track.stop());
+    localStreamRef.current = null;
+    setConnected(false);
+    setPeerId('');
+  }
+
+  function toggleMute() {
+    const nextMuted = !muted;
+    localStreamRef.current?.getAudioTracks().forEach(track => {
+      track.enabled = !nextMuted;
+    });
+    setMuted(nextMuted);
+    send({ type: 'mute', muted: nextMuted });
+  }
+
+  async function addFile(e) {
+    e.preventDefault();
+    try {
+      await api(`/broadcasts/${id}/files`, { method: 'POST', token: auth.token, body: { file_url: fileURL } });
+      setFileURL('');
+      setNotice('File added');
+      loadFiles();
+    } catch (err) {
+      setNotice(err.message);
+    }
+  }
+
+  return (
+    <section className="stack">
+      <section className="card stack">
+        <div className="inline between">
+          <h1>Broadcast voice room</h1>
+          <Link className="button-link secondary" to="/projects">Projects</Link>
+        </div>
+        <p className="muted">Peer ID: {peerId || 'not connected'}</p>
+        <div className="inline">
+          {!connected ? <button onClick={connect} disabled={!auth.token}>Join with microphone</button> : <button onClick={disconnect}>Leave</button>}
+          <button onClick={toggleMute} disabled={!connected}>{muted ? 'Unmute' : 'Mute'}</button>
+        </div>
+        {notice && <p className="notice">{notice}</p>}
+      </section>
+      <section className="card stack">
+        <h2>Voice peers</h2>
+        <LocalAudio stream={localStreamRef.current} />
+        {Object.entries(remoteStreams).map(([id, stream]) => <RemoteAudio key={id} peerID={id} stream={stream} />)}
+        {!Object.keys(remoteStreams).length && <p className="muted">No remote speakers yet</p>}
+      </section>
+      <section className="card stack">
+        <h2>Broadcast files</h2>
+        <FileLinks files={files.map(file => ({ file_url: file.file_url, file_type: 'document' }))} />
+        <form className="inline" onSubmit={addFile}>
+          <input placeholder="File URL" value={fileURL} onChange={e => setFileURL(e.target.value)} />
+          <button disabled={!auth.token || !fileURL.trim()}>Add file</button>
+        </form>
+      </section>
+    </section>
+  );
+}
+
+function LocalAudio({ stream }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+  if (!stream) return null;
+  return <audio ref={ref} autoPlay muted />;
+}
+
+function RemoteAudio({ peerID, stream }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+  return <div className="stack embedded">
+    <span>{peerID}</span>
+    <audio ref={ref} autoPlay controls />
+  </div>;
 }
 
 function ProjectForm({ edit }) {

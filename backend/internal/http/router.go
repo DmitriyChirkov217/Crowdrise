@@ -11,6 +11,7 @@ import (
 
 	"crowdrise/backend/internal/config"
 	"crowdrise/backend/internal/domain"
+	"crowdrise/backend/internal/realtime"
 	"crowdrise/backend/internal/repositories"
 	"crowdrise/backend/internal/services"
 
@@ -18,11 +19,13 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+	"nhooyr.io/websocket"
 )
 
 type Server struct {
 	app *services.Service
 	cfg config.Config
+	hub *realtime.Hub
 }
 
 type contextKey string
@@ -30,7 +33,7 @@ type contextKey string
 const claimsKey contextKey = "claims"
 
 func NewRouter(app *services.Service, cfg config.Config) http.Handler {
-	s := &Server{app: app, cfg: cfg}
+	s := &Server{app: app, cfg: cfg, hub: realtime.NewHub()}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -44,6 +47,9 @@ func NewRouter(app *services.Service, cfg config.Config) http.Handler {
 		r.Get("/categories", s.categories)
 		r.Get("/projects", s.listProjects)
 		r.Get("/projects/{project_id}", s.projectDetails)
+		r.Get("/projects/{project_id}/broadcasts", s.listBroadcasts)
+		r.Get("/broadcasts/{broadcast_id}/files", s.listBroadcastFiles)
+		r.Get("/broadcasts/{broadcast_id}/ws", s.broadcastVoice)
 		r.Post("/integrations/payments/webhook", s.paymentWebhook)
 
 		r.Group(func(r chi.Router) {
@@ -52,11 +58,14 @@ func NewRouter(app *services.Service, cfg config.Config) http.Handler {
 			r.Post("/projects", s.requireRole(domain.RoleAuthor, s.createProject))
 			r.Put("/projects/{project_id}", s.requireRole(domain.RoleAuthor, s.updateProject))
 			r.Post("/projects/{project_id}/media", s.requireRole(domain.RoleAuthor, s.addMedia))
+			r.Post("/projects/{project_id}/broadcasts", s.requireRole(domain.RoleAuthor, s.createBroadcast))
 			r.Post("/projects/{project_id}/submit", s.requireRole(domain.RoleAuthor, s.submitProject))
 			r.Post("/projects/{project_id}/milestones", s.requireRole(domain.RoleAuthor, s.addMilestone))
 			r.Put("/projects/{project_id}/milestones/{milestone_id}", s.requireRole(domain.RoleAuthor, s.updateMilestone))
 			r.Post("/projects/{project_id}/rewards", s.requireRole(domain.RoleAuthor, s.addReward))
 			r.Post("/projects/{project_id}/updates", s.requireRole(domain.RoleAuthor, s.addProjectUpdate))
+			r.Put("/broadcasts/{broadcast_id}/status", s.requireRole(domain.RoleAuthor, s.updateBroadcastStatus))
+			r.Post("/broadcasts/{broadcast_id}/files", s.requireRole(domain.RoleAuthor, s.addBroadcastFile))
 			r.Post("/projects/{project_id}/pledges", s.requireRole(domain.RoleBacker, s.createPledge))
 			r.Post("/milestones/{milestone_id}/submit", s.requireRole(domain.RoleAuthor, s.submitMilestoneReport))
 			r.Post("/pledges/{pledge_id}/refund", s.refundPledge)
@@ -119,12 +128,12 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		header := r.Header.Get("Authorization")
-		if !strings.HasPrefix(header, "Bearer ") {
+		token := bearerToken(r)
+		if token == "" {
 			writeError(w, domain.ErrForbidden)
 			return
 		}
-		claims, err := s.app.ParseToken(strings.TrimPrefix(header, "Bearer "))
+		claims, err := s.app.ParseToken(token)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -206,6 +215,72 @@ func (s *Server) adminProjects(w http.ResponseWriter, r *http.Request) {
 func (s *Server) projectDetails(w http.ResponseWriter, r *http.Request) {
 	res, err := s.app.ProjectDetails(r.Context(), chi.URLParam(r, "project_id"))
 	writeResult(w, res, err, http.StatusOK)
+}
+
+func (s *Server) listBroadcasts(w http.ResponseWriter, r *http.Request) {
+	res, err := s.app.ListBroadcasts(r.Context(), chi.URLParam(r, "project_id"))
+	writeResult(w, map[string]any{"items": res}, err, http.StatusOK)
+}
+
+func (s *Server) createBroadcast(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Status string `json:"status"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	res, err := s.app.CreateBroadcast(r.Context(), chi.URLParam(r, "project_id"), claims(r).UserID, req.Status)
+	writeResult(w, res, err, http.StatusCreated)
+}
+
+func (s *Server) updateBroadcastStatus(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Status string `json:"status"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	res, err := s.app.UpdateBroadcastStatus(r.Context(), chi.URLParam(r, "broadcast_id"), claims(r).UserID, req.Status)
+	writeResult(w, res, err, http.StatusOK)
+}
+
+func (s *Server) addBroadcastFile(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FileURL string `json:"file_url"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	res, err := s.app.AddBroadcastFile(r.Context(), chi.URLParam(r, "broadcast_id"), claims(r).UserID, req.FileURL)
+	writeResult(w, res, err, http.StatusCreated)
+}
+
+func (s *Server) listBroadcastFiles(w http.ResponseWriter, r *http.Request) {
+	res, err := s.app.ListBroadcastFiles(r.Context(), chi.URLParam(r, "broadcast_id"))
+	writeResult(w, map[string]any{"items": res}, err, http.StatusOK)
+}
+
+func (s *Server) broadcastVoice(w http.ResponseWriter, r *http.Request) {
+	token := bearerToken(r)
+	if token == "" {
+		token = r.URL.Query().Get("token")
+	}
+	claims, err := s.app.ParseToken(token)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	broadcastID := chi.URLParam(r, "broadcast_id")
+	if err := s.app.CanJoinBroadcast(r.Context(), broadcastID, claims.UserID); err != nil {
+		writeError(w, err)
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		log.Error().Err(err).Msg("websocket accept")
+		return
+	}
+	s.hub.Join(r.Context(), conn, broadcastID)
 }
 
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
@@ -469,6 +544,14 @@ func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 		return false
 	}
 	return true
+}
+
+func bearerToken(r *http.Request) string {
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
+		return ""
+	}
+	return strings.TrimPrefix(header, "Bearer ")
 }
 
 func writeResult(w http.ResponseWriter, data any, err error, status int) {

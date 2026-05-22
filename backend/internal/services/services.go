@@ -99,6 +99,56 @@ func (s *Service) ProjectDetails(ctx context.Context, projectID string) (domain.
 	return s.repo.GetProjectDetails(ctx, projectID)
 }
 
+func (s *Service) ListBroadcasts(ctx context.Context, projectID string) ([]domain.Broadcast, error) {
+	return s.repo.ListBroadcasts(ctx, projectID)
+}
+
+func (s *Service) CreateBroadcast(ctx context.Context, projectID, authorID, status string) (domain.Broadcast, error) {
+	if status == "" {
+		status = domain.BroadcastScheduled
+	}
+	if !validBroadcastStatus(status) {
+		return domain.Broadcast{}, domain.ErrValidation
+	}
+	return s.repo.CreateBroadcast(ctx, projectID, authorID, status)
+}
+
+func (s *Service) UpdateBroadcastStatus(ctx context.Context, broadcastID, authorID, status string) (domain.Broadcast, error) {
+	if !validBroadcastStatus(status) {
+		return domain.Broadcast{}, domain.ErrValidation
+	}
+	return s.repo.UpdateBroadcastStatus(ctx, broadcastID, authorID, status)
+}
+
+func (s *Service) AddBroadcastFile(ctx context.Context, broadcastID, authorID, fileURL string) (domain.BroadcastChatFile, error) {
+	if strings.TrimSpace(fileURL) == "" {
+		return domain.BroadcastChatFile{}, domain.ErrValidation
+	}
+	return s.repo.AddBroadcastFile(ctx, broadcastID, authorID, strings.TrimSpace(fileURL))
+}
+
+func (s *Service) ListBroadcastFiles(ctx context.Context, broadcastID string) ([]domain.BroadcastChatFile, error) {
+	return s.repo.ListBroadcastFiles(ctx, broadcastID)
+}
+
+func (s *Service) CanJoinBroadcast(ctx context.Context, broadcastID, userID string) error {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user.IsBlocked {
+		return domain.ErrForbidden
+	}
+	broadcast, err := s.repo.GetBroadcast(ctx, broadcastID)
+	if err != nil {
+		return err
+	}
+	if broadcast.Status == domain.BroadcastEnded {
+		return domain.ErrInvalidStatus
+	}
+	return nil
+}
+
 func (s *Service) CreateProject(ctx context.Context, authorID string, input repositories.ProjectInput) (domain.Project, error) {
 	if err := validateProjectInput(input); err != nil {
 		return domain.Project{}, err
@@ -272,4 +322,8 @@ func HasRole(roles []string, role string) bool {
 		}
 	}
 	return false
+}
+
+func validBroadcastStatus(status string) bool {
+	return status == domain.BroadcastScheduled || status == domain.BroadcastLive || status == domain.BroadcastEnded
 }

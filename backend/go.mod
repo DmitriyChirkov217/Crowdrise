@@ -10,6 +10,7 @@ require (
 	github.com/pressly/goose/v3 v3.22.0
 	github.com/rs/zerolog v1.33.0
 	golang.org/x/crypto v0.26.0
+	nhooyr.io/websocket v1.8.17
 )
 
 require (
