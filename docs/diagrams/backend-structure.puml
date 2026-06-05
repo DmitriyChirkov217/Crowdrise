@@ -1,0 +1,297 @@
+@startuml CrowdriseBackendStructure
+title Crowdrise backend structure
+
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+package "cmd/api" {
+  class main <<entrypoint>> {
+    +main()
+    -runMigrations(databaseURL)
+  }
+}
+
+package "internal/config" {
+  class Config {
+    +HTTPAddr : string
+    +DatabaseURL : string
+    +JWTSecret : string
+    +CORSOrigin : string
+  }
+}
+
+package "internal/http" {
+  class Server <<HTTP adapter>> {
+    -app : Service
+    -cfg : Config
+    -hub : Hub
+    +NewRouter(app, cfg)
+    +auth(next)
+    +requireRole(role, handler)
+    +register()
+    +login()
+    +me()
+    +listProjects()
+    +projectDetails()
+    +createProject()
+    +updateProject()
+    +addMilestone()
+    +addReward()
+    +createPledge()
+    +paymentWebhook()
+    +refundPledge()
+    +submitMilestoneReport()
+    +adminProjectDecision()
+    +adminMilestoneReview()
+    +createBroadcast()
+    +updateBroadcastStatus()
+    +deleteBroadcast()
+    +addBroadcastFile()
+    +broadcastVoice()
+  }
+}
+
+package "internal/services" {
+  class Service <<business logic>> {
+    -repo : Repository
+    -jwtSecret : []byte
+    +Register()
+    +Login()
+    +ParseToken()
+    +Me()
+    +ListProjects()
+    +ProjectDetails()
+    +CreateProject()
+    +UpdateProject()
+    +SubmitProject()
+    +AdminProjectDecision()
+    +CreatePledge()
+    +PaymentWebhook()
+    +RefundPledge()
+    +SubmitMilestone()
+    +ReviewMilestone()
+    +AddProjectUpdate()
+    +ListBroadcasts()
+    +CreateBroadcast()
+    +UpdateBroadcastStatus()
+    +DeleteBroadcast()
+    +AddBroadcastFile()
+    +CanJoinBroadcast()
+  }
+
+  class Claims {
+    +UserID : string
+    +Roles : []string
+  }
+
+  class AuthResponse {
+    +Token : string
+    +User : User
+  }
+}
+
+package "internal/repositories" {
+  class Repository <<PostgreSQL gateway>> {
+    -db : pgxpool.Pool
+    +CreateUser()
+    +GetUserByID()
+    +GetAuthUserByEmail()
+    +ListCategories()
+    +ListProjects()
+    +GetProjectDetails()
+    +CreateProject()
+    +UpdateProject()
+    +AddMedia()
+    +AddMilestone()
+    +UpdateMilestone()
+    +ListMilestones()
+    +AddReward()
+    +CreatePledgeAndPayment()
+    +PaymentByID()
+    +HandlePaymentWebhook()
+    +RefundPledge()
+    +SubmitMilestone()
+    +ReviewMilestone()
+    +AddProjectUpdate()
+    +ListMilestoneSubmissions()
+    +SetUserBlocked()
+    +ListBroadcasts()
+    +CreateBroadcast()
+    +GetBroadcast()
+    +UpdateBroadcastStatus()
+    +DeleteBroadcast()
+    +AddBroadcastFile()
+    +ListBroadcastFiles()
+    +TakePendingOutbox()
+    +MarkOutboxSent()
+  }
+
+  class AuthUser {
+    +User : User
+    +PasswordHash : string
+  }
+
+  class PaymentRecord {
+    +ID : string
+    +PledgeID : string
+    +ProjectID : string
+    +BackerID : string
+    +ProviderPaymentID : string
+    +Status : string
+    +Amount : float64
+  }
+}
+
+package "internal/domain" {
+  class User <<DTO>> {
+    +ID : string
+    +Email : string
+    +DisplayName : string
+    +Phone : *string
+    +IsBlocked : bool
+    +Roles : []string
+  }
+
+  class Funds <<DTO>> {
+    +TotalCollected : float64
+    +TotalRefunded : float64
+    +TotalAvailable : float64
+    +TotalReserved : float64
+  }
+
+  class Project <<DTO>> {
+    +ID : string
+    +AuthorID : string
+    +Title : string
+    +CampaignType : string
+    +GoalAmount : float64
+    +Status : string
+    +Funds : Funds
+  }
+
+  class Milestone <<DTO>> {
+    +ID : string
+    +ProjectID : string
+    +Title : string
+    +DueAt : string
+    +AmountLimit : float64
+    +Position : int
+    +Status : string
+  }
+
+  class Reward <<DTO>> {
+    +ID : string
+    +ProjectID : string
+    +Title : string
+    +MinAmount : float64
+  }
+
+  class Broadcast <<DTO>> {
+    +ID : string
+    +ProjectID : string
+    +Status : string
+    +Files : []BroadcastChatFile
+  }
+
+  class BroadcastChatFile <<DTO>> {
+    +ID : string
+    +BroadcastID : string
+    +FileURL : string
+  }
+
+  class ProjectDetails <<DTO>> {
+    +Project : Project
+    +Milestones : []Milestone
+    +Rewards : []Reward
+    +Broadcasts : []Broadcast
+  }
+}
+
+package "internal/realtime" {
+  class Hub <<in-memory WebRTC signaling>> {
+    -rooms : map[string]map[string]Client
+    +Join(ctx, conn, roomID)
+    -add(client)
+    -remove(client)
+    -sendTo(roomID, peerID, msg)
+    -broadcast(roomID, msg, exceptPeerID)
+  }
+
+  class Client {
+    -id : string
+    -roomID : string
+    -conn : websocket.Conn
+    -send : chan SignalMessage
+  }
+
+  class SignalMessage {
+    +Type : string
+    +PeerID : string
+    +From : string
+    +To : string
+    +Muted : *bool
+    +Payload : json.RawMessage
+    +Peers : []PeerInfo
+  }
+}
+
+package "internal/outbox" {
+  class Worker <<background worker>> {
+    -repo : Repository
+    -interval : time.Duration
+    +Run(ctx)
+  }
+}
+
+database "PostgreSQL" as DB
+rectangle "Browser / React frontend" as Frontend
+cloud "WebRTC audio mesh" as WebRTC
+
+main --> Config : loads
+main --> Repository : creates
+main --> Service : creates
+main --> Server : NewRouter
+main --> Worker : starts
+
+Frontend --> Server : REST / JSON
+Frontend --> Server : WebSocket signaling
+Frontend .. WebRTC : browser-to-browser audio
+
+Server --> Service
+Server --> Hub : voice signaling
+Service --> Repository
+Repository --> DB : SQL / pgx
+Worker --> Repository : notification_outbox
+
+Service ..> User
+Service ..> Project
+Service ..> Milestone
+Service ..> Reward
+Service ..> Broadcast
+Service ..> BroadcastChatFile
+Repository ..> ProjectDetails
+ProjectDetails *-- Project
+ProjectDetails *-- Milestone
+ProjectDetails *-- Reward
+ProjectDetails *-- Broadcast
+Project *-- Funds
+Broadcast *-- BroadcastChatFile
+Hub *-- Client
+Hub ..> SignalMessage
+
+note right of Hub
+No voice participants are saved in DB.
+The hub relays joined, offer, answer,
+ice_candidate, mute, leave events.
+end note
+
+note bottom of Service
+Business rules live here:
+auth, validation, roles,
+project flow, payments, refunds,
+milestone review, broadcasts.
+end note
+
+@enduml

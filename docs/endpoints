@@ -1,0 +1,414 @@
+# Endpoints and related tables
+
+Документ сверлен с фактическими маршрутами из `backend/internal/http/router.go`.
+
+## Что исправлено и добавлено
+
+- Исправлено: `GET /api/v1/projects` поддерживает только `status`, `campaign_type`, `page`, `page_size`; параметры `q`, `category_id`, `min_goal`, `max_goal` в backend сейчас не реализованы.
+- Исправлено: `POST /api/v1/payments/{payment_id}/confirm` удалён из списка, потому что такого endpoint нет.
+- Исправлено: проверка этапа идёт через `POST /api/v1/admin/milestones/{milestone_id}/review`, а не через `/milestones/{milestone_id}/review`.
+- Добавлено: `POST /api/v1/payments/{payment_id}/mock-capture`.
+- Добавлено: `POST /api/v1/payments/{payment_id}/mock-fail`.
+- Добавлено: `GET /api/v1/admin/projects/{project_id}`.
+- Добавлено: `GET /api/v1/admin/milestones`.
+- Добавлено: `POST /api/v1/admin/users/{user_id}/unblock`.
+- Добавлено: все endpoints комнат трансляций и голосового чата.
+- Добавлено: описание таблиц `broadcast` и `broadcast_chat_files`.
+
+## Таблицы трансляций
+
+### `broadcast`
+
+| Поле | Тип | Назначение |
+|---|---|---|
+| `id` | `uuid` | ID комнаты трансляции. |
+| `project_id` | `uuid` | Проект, к которому относится комната. FK на `projects(id)`. |
+| `status` | `varchar(30)` | Статус комнаты: `scheduled`, `live`, `ended`. |
+
+Назначение: хранит комнаты трансляций проекта. Участники голосового чата в БД не сохраняются: они существуют только в памяти backend во время WebSocket-сессии.
+
+### `broadcast_chat_files`
+
+| Поле | Тип | Назначение |
+|---|---|---|
+| `id` | `uuid` | ID файла в комнате. |
+| `broadcast_id` | `uuid` | Комната трансляции. FK на `broadcast(id)`. |
+| `file_url` | `text` | URL документа/файла, который автор добавил в трансляцию. |
+
+Назначение: хранит документы трансляции. На frontend они отображаются как `Документ 1`, `Документ 2` и т.д. по порядку получения.
+
+## Auth and users
+
+### `POST /api/v1/auth/register`
+
+Назначение: регистрация пользователя.
+
+Auth: не требуется.
+
+Таблицы: `users`, `user_roles`, `roles`.
+
+Пример тела:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123",
+  "display_name": "Иван Иванов",
+  "phone": "+79990000000"
+}
+```
+
+### `POST /api/v1/auth/login`
+
+Назначение: вход в систему и выдача JWT.
+
+Auth: не требуется.
+
+Таблицы: `users`, `user_roles`, `roles`.
+
+Пример тела:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+
+### `GET /api/v1/users/me`
+
+Назначение: профиль текущего пользователя.
+
+Auth: требуется.
+
+Таблицы: `users`, `user_roles`, `roles`.
+
+## Categories
+
+### `GET /api/v1/categories`
+
+Назначение: список категорий проектов.
+
+Auth: не требуется.
+
+Таблицы: `categories`.
+
+## Projects
+
+### `GET /api/v1/projects`
+
+Назначение: каталог проектов.
+
+Auth: не требуется.
+
+Таблицы: `projects`, `categories`, `project_funds`.
+
+### `GET /api/v1/projects/{project_id}`
+
+Назначение: детальная карточка проекта.
+
+Auth: не требуется.
+
+Таблицы: `projects`, `categories`, `project_funds`, `project_media`, `milestones`, `rewards`, `project_updates`, `broadcast`, `broadcast_chat_files`.
+
+### `POST /api/v1/projects`
+
+Назначение: создание проекта в статусе `draft`.
+
+Auth: требуется, роль `author`.
+
+Таблицы: `projects`, `project_funds`.
+
+### `PUT /api/v1/projects/{project_id}`
+
+Назначение: редактирование проекта.
+
+Auth: требуется, роль `author`, только автор проекта.
+
+Таблицы: `projects`.
+
+Ограничение: редактирование доступно только для статусов `draft` и `rejected`.
+
+### `POST /api/v1/projects/{project_id}/media`
+
+Назначение: добавить медиа URL к проекту.
+
+Auth: требуется, роль `author`, только автор проекта.
+
+Таблицы: `project_media`.
+
+### `POST /api/v1/projects/{project_id}/submit`
+
+Назначение: отправить проект на модерацию.
+
+Auth: требуется, роль `author`, только автор проекта.
+
+Таблицы: `projects`, `milestones`, `rewards`.
+
+Проверки:
+
+- проект в статусе `draft` или `rejected`;
+- есть хотя бы один этап;
+- сумма этапов равна `goal_amount`;
+- для `reward` проекта есть хотя бы одно вознаграждение.
+
+## Milestones and rewards
+
+### `POST /api/v1/projects/{project_id}/milestones`
+
+Назначение: создать этап проекта.
+
+Auth: требуется, роль `author`, только автор проекта.
+
+Таблицы: `milestones`.
+
+### `PUT /api/v1/projects/{project_id}/milestones/{milestone_id}`
+
+Назначение: редактировать этап проекта.
+
+Auth: требуется, роль `author`, только автор проекта.
+
+Таблицы: `milestones`.
+
+### `POST /api/v1/projects/{project_id}/rewards`
+
+Назначение: создать вознаграждение для reward-проекта.
+
+Auth: требуется, роль `author`, только автор проекта.
+
+Таблицы: `rewards`.
+
+### `POST /api/v1/milestones/{milestone_id}/submit`
+
+Назначение: автор отправляет отчёт по этапу.
+
+Auth: требуется, роль `author`.
+
+Таблицы: `milestone_submissions`, `milestone_submission_files`, `milestones`, `notification_outbox`.
+
+Поведение: этап переходит в статус `on_review`.
+
+## Project updates
+
+### `POST /api/v1/projects/{project_id}/updates`
+
+Назначение: публикация обновления проекта.
+
+Auth: требуется, роль `author`, только автор проекта.
+
+Таблицы: `project_updates`, `pledges`, `notification_outbox`.
+
+## Pledges, payments and refunds
+
+### `POST /api/v1/projects/{project_id}/pledges`
+
+Назначение: создать поддержку проекта и mock-платёж.
+
+Auth: требуется, роль `backer`.
+
+Таблицы: `pledges`, `payments`, `projects`, `rewards`.
+
+Пример тела:
+
+```json
+{
+  "amount": 1500,
+  "reward_id": "uuid-or-null"
+}
+```
+
+### `POST /api/v1/payments/{payment_id}/mock-capture`
+
+Назначение: имитировать успешный платёж.
+
+Auth: требуется, роль `admin`.
+
+Таблицы: `payments`, `pledges`, `payment_webhook_events`, `project_funds`, `fund_ledger`, `notification_outbox`.
+
+Поведение:
+
+- `payments.status` -> `captured`;
+- `pledges.status` -> `paid`;
+- `project_funds.total_collected` увеличивается;
+- `project_funds.total_reserved` увеличивается;
+- в `fund_ledger` пишутся операции `collect` и `reserve`.
+
+### `POST /api/v1/payments/{payment_id}/mock-fail`
+
+Назначение: имитировать неуспешный платёж.
+
+Auth: требуется, роль `admin`.
+
+Таблицы: `payments`, `pledges`, `payment_webhook_events`, `notification_outbox`.
+
+### `POST /api/v1/integrations/payments/webhook`
+
+Назначение: приём webhook-события платежного провайдера.
+
+Auth: не требуется.
+
+Таблицы: `payment_webhook_events`, `payments`, `pledges`, `project_funds`, `fund_ledger`, `notification_outbox`.
+
+Примечание: `payment_webhook_events` защищает от повторной обработки одного и того же события по уникальной паре `(provider, provider_event_id)`.
+
+### `POST /api/v1/pledges/{pledge_id}/refund`
+
+Назначение: возврат поддержки.
+
+Auth: требуется. Разрешено владельцу pledge или admin.
+
+Таблицы: `pledges`, `payments`, `refunds`, `project_funds`, `fund_ledger`, `notification_outbox`.
+
+## Broadcast rooms and voice chat
+
+### `GET /api/v1/projects/{project_id}/broadcasts`
+
+Назначение: список комнат трансляций проекта.
+
+Auth: не требуется.
+
+Таблицы: `broadcast`, `broadcast_chat_files`.
+
+### `POST /api/v1/projects/{project_id}/broadcasts`
+
+Назначение: создать комнату трансляции.
+
+Auth: требуется, роль `author`, только автор проекта.
+
+Таблицы: `broadcast`.
+
+Пример тела:
+
+```json
+{
+  "status": "scheduled"
+}
+```
+
+### `PUT /api/v1/broadcasts/{broadcast_id}/status`
+
+Назначение: изменить статус комнаты.
+
+Auth: требуется, роль `author`, только автор связанного проекта.
+
+Таблицы: `broadcast`.
+
+Допустимые статусы: `scheduled`, `live`, `ended`.
+
+### `DELETE /api/v1/broadcasts/{broadcast_id}`
+
+Назначение: удалить комнату трансляции.
+
+Auth: требуется, роль `author`, только автор связанного проекта.
+
+Таблицы: `broadcast`, `broadcast_chat_files`.
+
+Поведение: файлы комнаты удаляются каскадом.
+
+### `GET /api/v1/broadcasts/{broadcast_id}/files`
+
+Назначение: список файлов комнаты.
+
+Auth: не требуется.
+
+Таблицы: `broadcast_chat_files`.
+
+### `POST /api/v1/broadcasts/{broadcast_id}/files`
+
+Назначение: добавить URL файла в комнату.
+
+Auth: требуется, роль `author`, только автор связанного проекта.
+
+Таблицы: `broadcast_chat_files`, `broadcast`, `projects`.
+
+Пример тела:
+
+```json
+{
+  "file_url": "https://example.com/document.pdf"
+}
+```
+
+### `GET /api/v1/broadcasts/{broadcast_id}/ws?token={jwt}`
+
+Назначение: WebSocket signaling для WebRTC mesh голосового чата.
+
+Auth: требуется через JWT в query `token` или заголовок `Authorization: Bearer ...`.
+
+Таблицы: `broadcast`, `users`.
+
+Примечание: участники голосового чата не сохраняются в БД. Backend хранит подключения только в памяти и пересылает signaling-сообщения `joined`, `peer_joined`, `peer_left`, `offer`, `answer`, `ice_candidate`, `mute`, `leave`.
+
+## Admin
+
+### `GET /api/v1/admin/projects`
+
+Назначение: список проектов для админа.
+
+Auth: требуется, роль `admin`.
+
+Параметры: `status`, `page`, `page_size`.
+
+Таблицы: `projects`, `categories`, `project_funds`.
+
+### `GET /api/v1/admin/projects/{project_id}`
+
+Назначение: детальная карточка проекта для админа.
+
+Auth: требуется, роль `admin`.
+
+Таблицы: те же, что у `GET /api/v1/projects/{project_id}`.
+
+### `POST /api/v1/admin/projects/{project_id}/decision`
+
+Назначение: решение по модерации проекта.
+
+Auth: требуется, роль `admin`.
+
+Таблицы: `projects`, `notification_outbox`.
+
+Решения: `approved`, `rejected`, `blocked`.
+
+### `GET /api/v1/admin/milestones`
+
+Назначение: список отчётов по этапам, ожидающих проверки.
+
+Auth: требуется, роль `admin`.
+
+Таблицы: `milestone_submissions`, `milestone_submission_files`, `milestones`, `projects`.
+
+### `POST /api/v1/admin/milestones/{milestone_id}/review`
+
+Назначение: проверка отчёта по этапу.
+
+Auth: требуется, роль `admin`.
+
+Таблицы: `milestone_reviews`, `milestones`, `project_funds`, `fund_ledger`, `notification_outbox`.
+
+Поведение при `approved`:
+
+- `milestones.status` -> `approved`;
+- `project_funds.total_reserved` уменьшается;
+- `project_funds.total_available` увеличивается;
+- в `fund_ledger` пишется операция `release`.
+
+Поведение при `rejected`:
+
+- `milestones.status` -> `rejected`;
+- деньги остаются в `reserved`.
+
+### `POST /api/v1/admin/users/{user_id}/block`
+
+Назначение: заблокировать пользователя.
+
+Auth: требуется, роль `admin`.
+
+Таблицы: `users`.
+
+### `POST /api/v1/admin/users/{user_id}/unblock`
+
+Назначение: разблокировать пользователя.
+
+Auth: требуется, роль `admin`.
+
+Таблицы: `users`.

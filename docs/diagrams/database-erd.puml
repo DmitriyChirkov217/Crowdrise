@@ -1,0 +1,268 @@
+@startuml CrowdriseDatabaseERD
+title Crowdrise database ERD
+
+hide circle
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+
+entity "users" as users {
+  * id : uuid <<PK>>
+  --
+  email : varchar(255) <<unique>>
+  password_hash : varchar(255)
+  display_name : varchar(255)
+  phone : varchar(50)
+  is_blocked : boolean
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "roles" as roles {
+  * id : smallserial <<PK>>
+  --
+  code : varchar(50) <<unique>>
+  name : varchar(255)
+}
+
+entity "user_roles" as user_roles {
+  * user_id : uuid <<PK, FK>>
+  * role_id : smallint <<PK, FK>>
+  --
+  created_at : timestamp
+}
+
+entity "categories" as categories {
+  * id : serial <<PK>>
+  --
+  name : varchar(255) <<unique>>
+}
+
+entity "projects" as projects {
+  * id : uuid <<PK>>
+  --
+  author_id : uuid <<FK>>
+  title : varchar(255)
+  short_description : varchar(500)
+  description : text
+  category_id : int <<FK>>
+  campaign_type : varchar(20)
+  currency : varchar(3)
+  goal_amount : numeric(14,2)
+  start_at : timestamp
+  end_at : timestamp
+  status : varchar(30)
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "project_media" as project_media {
+  * id : uuid <<PK>>
+  --
+  project_id : uuid <<FK>>
+  media_type : varchar(20)
+  url : text
+  sort_order : int
+}
+
+entity "milestones" as milestones {
+  * id : uuid <<PK>>
+  --
+  project_id : uuid <<FK>>
+  title : varchar(255)
+  description : text
+  due_at : timestamp
+  amount_limit : numeric(14,2)
+  position : int
+  status : varchar(30)
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "milestone_submissions" as milestone_submissions {
+  * id : uuid <<PK>>
+  --
+  milestone_id : uuid <<FK>>
+  author_id : uuid <<FK>>
+  report_text : text
+  submitted_at : timestamp
+}
+
+entity "milestone_submission_files" as milestone_submission_files {
+  * id : uuid <<PK>>
+  --
+  submission_id : uuid <<FK>>
+  file_url : text
+  file_type : varchar(50)
+}
+
+entity "milestone_reviews" as milestone_reviews {
+  * id : uuid <<PK>>
+  --
+  submission_id : uuid <<FK>>
+  admin_id : uuid <<FK>>
+  decision : varchar(20)
+  comment : text
+  reviewed_at : timestamp
+}
+
+entity "rewards" as rewards {
+  * id : uuid <<PK>>
+  --
+  project_id : uuid <<FK>>
+  title : varchar(255)
+  description : text
+  min_amount : numeric(14,2)
+  limit_count : int
+  delivery_estimate : date
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "pledges" as pledges {
+  * id : uuid <<PK>>
+  --
+  project_id : uuid <<FK>>
+  backer_id : uuid <<FK>>
+  reward_id : uuid <<FK>>
+  amount : numeric(14,2)
+  status : varchar(30)
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "payments" as payments {
+  * id : uuid <<PK>>
+  --
+  pledge_id : uuid <<FK>>
+  provider : varchar(50)
+  provider_payment_id : varchar(255) <<unique>>
+  status : varchar(30)
+  amount : numeric(14,2)
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "payment_webhook_events" as payment_webhook_events {
+  * id : uuid <<PK>>
+  --
+  provider : varchar(50)
+  provider_event_id : varchar(255)
+  payment_id : uuid <<FK>>
+  event_type : varchar(100)
+  payload : jsonb
+  processed_at : timestamp
+}
+
+entity "refunds" as refunds {
+  * id : uuid <<PK>>
+  --
+  payment_id : uuid <<FK>>
+  provider_refund_id : varchar(255) <<unique>>
+  status : varchar(30)
+  amount : numeric(14,2)
+  reason : varchar(255)
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "project_funds" as project_funds {
+  * project_id : uuid <<PK, FK>>
+  --
+  total_collected : numeric(14,2)
+  total_refunded : numeric(14,2)
+  total_available : numeric(14,2)
+  total_reserved : numeric(14,2)
+  updated_at : timestamp
+}
+
+entity "fund_ledger" as fund_ledger {
+  * id : uuid <<PK>>
+  --
+  project_id : uuid <<FK>>
+  operation_type : varchar(30)
+  amount : numeric(14,2)
+  reference_type : varchar(50)
+  reference_id : uuid
+  created_at : timestamp
+}
+
+entity "project_updates" as project_updates {
+  * id : uuid <<PK>>
+  --
+  project_id : uuid <<FK>>
+  author_id : uuid <<FK>>
+  title : varchar(255)
+  content : text
+  created_at : timestamp
+}
+
+entity "notification_outbox" as notification_outbox {
+  * id : uuid <<PK>>
+  --
+  user_id : uuid <<FK>>
+  event_type : varchar(100)
+  payload : jsonb
+  status : varchar(30)
+  attempts : int
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "broadcast" as broadcast {
+  * id : uuid <<PK>>
+  --
+  project_id : uuid <<FK>>
+  status : varchar(30)
+}
+
+entity "broadcast_chat_files" as broadcast_chat_files {
+  * id : uuid <<PK>>
+  --
+  broadcast_id : uuid <<FK>>
+  file_url : text
+}
+
+users ||--o{ user_roles : has
+roles ||--o{ user_roles : grants
+users ||--o{ projects : authors
+categories ||--o{ projects : categorizes
+projects ||--o{ project_media : contains
+projects ||--o{ milestones : has
+milestones ||--o{ milestone_submissions : receives
+users ||--o{ milestone_submissions : submits
+milestone_submissions ||--o{ milestone_submission_files : attaches
+milestone_submissions ||--o{ milestone_reviews : reviewed_by
+users ||--o{ milestone_reviews : admin
+projects ||--o{ rewards : offers
+projects ||--o{ pledges : receives
+users ||--o{ pledges : backs
+rewards ||--o{ pledges : selected
+pledges ||--o{ payments : paid_by
+payments ||--o{ payment_webhook_events : emits
+payments ||--o{ refunds : refunded_by
+projects ||--|| project_funds : tracks
+projects ||--o{ fund_ledger : records
+projects ||--o{ project_updates : publishes
+users ||--o{ project_updates : writes
+users ||--o{ notification_outbox : receives
+projects ||--o{ broadcast : streams
+broadcast ||--o{ broadcast_chat_files : shares
+
+note right of projects
+status: draft, on_review, rejected,
+published, completed, blocked, canceled
+campaign_type: reward, donation
+end note
+
+note right of project_funds
+Accounting model:
+collected -> reserved -> available/refunded
+end note
+
+note right of broadcast
+Voice participants are not persisted.
+WebRTC mesh uses in-memory signaling hub.
+end note
+
+@enduml
